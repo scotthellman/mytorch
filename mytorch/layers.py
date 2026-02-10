@@ -20,5 +20,5 @@ class Sigmoid:
     def forward(self, input: Tensor) -> Tensor:
         # TODO: broadcasting sure would make this part easier
         one = Tensor(np.ones_like(input.value))
-        result = one / (one + -input.exp())
+        result = one / (one + (-input).exp())
         return result
