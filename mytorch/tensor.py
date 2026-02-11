@@ -46,10 +46,10 @@ class Tensor:
         b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
         def local_grad_self(acc: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-            return handle_broadcasting(acc, self_broadcast_axes)
+            return handle_broadcasting(acc, self_broadcast_axes, self.value.shape)
 
         def local_grad_b(acc: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-            return handle_broadcasting(acc, b_broadcast_axes)
+            return handle_broadcasting(acc, b_broadcast_axes, b.value.shape)
 
         operations = [
             (self, "add", local_grad_self),  # conceptually, 1*acc
@@ -63,10 +63,10 @@ class Tensor:
         b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
         def local_grad_self(acc: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-            return handle_broadcasting(acc, self_broadcast_axes)
+            return handle_broadcasting(acc, self_broadcast_axes, self.value.shape)
 
         def local_grad_b(acc: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-            return handle_broadcasting(-acc, b_broadcast_axes)
+            return handle_broadcasting(-acc, b_broadcast_axes, b.value.shape)
 
         operations = [(self, "sub", local_grad_self), (b, "sub", local_grad_b)]
         return Tensor(result, operations)
@@ -78,10 +78,14 @@ class Tensor:
         b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
         def local_grad_self(acc: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-            return handle_broadcasting(acc * b.value, self_broadcast_axes)
+            return handle_broadcasting(
+                acc * b.value, self_broadcast_axes, self.value.shape
+            )
 
         def local_grad_b(acc: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-            return handle_broadcasting(acc * self.value, b_broadcast_axes)
+            return handle_broadcasting(
+                acc * self.value, b_broadcast_axes, b.value.shape
+            )
 
         operations = [
             (self, "mul", local_grad_self),
@@ -91,7 +95,11 @@ class Tensor:
 
     def __neg__(self) -> Tensor:
         value = -self.value
-        operations = [(self, "neg", lambda acc: -acc)]
+
+        def local_grad(acc: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
+            return -acc
+
+        operations = [(self, "neg", local_grad)]
         return Tensor(value, operations)
 
     def __truediv__(self, b: Tensor) -> Tensor:
@@ -101,35 +109,43 @@ class Tensor:
         b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
         def local_grad_self(acc: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-            return handle_broadcasting(acc / b.value, self_broadcast_axes)
+            return handle_broadcasting(
+                acc / b.value, self_broadcast_axes, self.value.shape
+            )
 
         def local_grad_b(acc: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
             return handle_broadcasting(
-                -acc * self.value / (b.value**2), b_broadcast_axes
+                -acc * self.value / (b.value**2), b_broadcast_axes, b.value.shape
             )
 
         operations = [
             (self, "div", local_grad_self),
             (b, "div", local_grad_b),
         ]
-        return Tensor(value, operations)
+        return Tensor(result, operations)
 
-    def matmul(self, matrix: Tensor) -> Tensor:
-        # FIXME: this is where my broadcasting ignorance will really get me into trouble
-        # hard assumption right now that self is a 1d vector
-        # also that acc is a scalar
-        # TODO: also i couldn't justify this local gradient term if asked, so work
-        # through the math more closely
-        value = np.matmul(self.value, matrix.value)
+    def matmul(self, b: Tensor) -> Tensor:
+        result = np.matmul(self.value, b.value)
+        self_broadcast_axes = compute_broadcast_axes(
+            self.value.shape, result.shape, matmul=True
+        )
+        b_broadcast_axes = compute_broadcast_axes(
+            b.value.shape, result.shape, matmul=True
+        )
+
+        def local_grad_self(acc: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
+            grad = np.matmul(acc, np.swapaxes(b.value, -2, -1))
+            return handle_broadcasting(grad, self_broadcast_axes, self.value.shape)
+
+        def local_grad_b(acc: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
+            grad = np.matmul(np.swapaxes(self.value, -2, -1), acc)
+            return handle_broadcasting(grad, b_broadcast_axes, b.value.shape)
+
         operations = [
-            (self, "matmul", lambda acc: np.matmul(acc.reshape(1, -1), matrix.value.T)),
-            (
-                matrix,
-                "matmul",
-                lambda acc: np.matmul(self.value.reshape(-1, 1), acc.reshape(1, -1)),
-            ),
+            (self, "matmul", local_grad_self),
+            (b, "matmul", local_grad_b),
         ]
-        return Tensor(value, operations)
+        return Tensor(result, operations)
 
     def exp(self) -> Tensor:
         value = np.exp(self.value)
@@ -138,10 +154,11 @@ class Tensor:
 
 
 def compute_broadcast_axes(
-    start_shape: tuple[int], broadcast_shape: tuple[int]
+    start_shape: tuple[int], broadcast_shape: tuple[int], matmul: bool = False
 ) -> tuple[int]:
     altered_axes = []
-    for i in range(-1, -len(broadcast_shape) - 1, -1):
+    start = -3 if matmul else -1
+    for i in range(start, -len(broadcast_shape) - 1, -1):
         current = broadcast_shape[i]
         if abs(i) > len(start_shape) or current != start_shape[i]:
             altered_axes.append(len(broadcast_shape) + i)
@@ -150,8 +167,10 @@ def compute_broadcast_axes(
 
 
 def handle_broadcasting(
-    path_gradient: npt.NDArray[np.floating], broadcast_axes: tuple[int] | None = None
+    path_gradient: npt.NDArray[np.floating],
+    broadcast_axes: tuple[int],
+    target_shape: tuple[int],
 ) -> npt.NDArray[np.floating]:
     if broadcast_axes:
-        return np.sum(path_gradient, axis=broadcast_axes, keepdims=True)
+        return np.sum(path_gradient, axis=broadcast_axes).reshape(target_shape)
     return path_gradient
