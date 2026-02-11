@@ -124,7 +124,7 @@ class Tensor:
         ]
         return Tensor(result, operations)
 
-    def matmul(self, b: Tensor) -> Tensor:
+    def __matmul__(self, b: Tensor) -> Tensor:
         result = np.matmul(self.value, b.value)
         self_broadcast_axes = compute_broadcast_axes(
             self.value.shape, result.shape, matmul=True
