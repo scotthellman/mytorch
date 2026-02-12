@@ -140,3 +140,8 @@ class GpuTensor:
             (b, "matmul", local_grad_b),
         ]
         return GpuTensor(result, operations)
+
+    def exp(self) -> GpuTensor:
+        result = kernels.exp(self.value)
+        operations = [(self, "exp", lambda acc: acc * kernels.exp(self.value))]
+        return GpuTensor(result, operations)

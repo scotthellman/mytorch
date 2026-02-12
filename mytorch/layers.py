@@ -12,7 +12,7 @@ class Linear:
         self.bias = Tensor(np.array([0.0]), frozen=False)
 
     def forward(self, input: Tensor) -> Tensor:
-        result = input.matmul(self.weights) + self.bias
+        result = input @ self.weights + self.bias
         return result
 
 

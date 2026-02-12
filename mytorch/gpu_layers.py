@@ -18,12 +18,9 @@ class Linear:
         return result
 
 
-"""
 class Sigmoid:
-    def forward(self, input: Tensor) -> Tensor:
+    def forward(self, input: GpuTensor) -> GpuTensor:
         # TODO: broadcasting sure would make this part easier
-        one = Tensor(cp.ones_like(input.value))
+        one = GpuTensor(cp.ones_like(input.value))
         result = one / (one + (-input).exp())
         return result
-
-"""
