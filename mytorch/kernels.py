@@ -81,7 +81,7 @@ div_local_grad_kernel = cp.RawKernel(div_local_grad_code, "div_local_grad_kernel
 # FIXME: do better
 matmul_code = r"""
 extern "C" __global__
-void matmul(int m, int n, int p, const float* A, const float* B, float* C) {
+void matmul(int m, int n, int p, int outer_loop, const float* A, const float* B, float* C) {
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -89,14 +89,19 @@ void matmul(int m, int n, int p, const float* A, const float* B, float* C) {
     const int x_stride = blockDim.x*gridDim.x;
     const int y_stride = blockDim.y*gridDim.y;
 
-    for(int i = x; i <m; i += x_stride){
-        for(int j = y; j<p; j += y_stride){
-            // dot the xth row of A with the yth col of B
-            float acc = 0.0;
-            for(int k = 0; k < n; k++){
-                acc += A[k + i*n] * B[k*p + j];
+    for(int batch = 0; batch < outer_loop; batch += 1){
+        const int batch_offset_A = batch * m * n;
+        const int batch_offset_B = batch * p * n;
+        const int batch_offset_C = batch * m * p;
+        for(int i = x; i <m; i += x_stride){
+            for(int j = y; j<p; j += y_stride){
+                // dot the xth row of A with the yth col of B
+                float acc = 0.0;
+                for(int k = 0; k < n; k++){
+                    acc += A[batch_offset_A + k + i*n] * B[batch_offset_B + k*p + j];
+                }
+                C[batch_offset_C + i*p + j] = acc;
             }
-            C[i*p + j] = acc;
         }
     }
 }
@@ -220,14 +225,34 @@ def exp(a: cp.ndarray) -> cp.ndarray:
 
 
 def matmul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
-    assert a.shape[1] == b.shape[0]
-    result = cp.empty((a.shape[0], b.shape[1]), dtype=cp.float32)
-    n = result.size
+    assert a.shape[-1] == b.shape[-2]
+
+    a_batch = a.shape[:-2]
+    b_batch = b.shape[:-2]
+    broadcast_shape = cp.broadcast_shapes(a_batch, b_batch)
+
+    # FIXME: we really don't want these copies, but that'll
+    # make the kernel a lot more complex
+    a_broadcast = cp.broadcast_to(a, broadcast_shape + a.shape[-2:]).copy()
+    b_broadcast = cp.broadcast_to(b, broadcast_shape + b.shape[-2:]).copy()
+    result = cp.empty(broadcast_shape + (a.shape[-2], b.shape[-1]), dtype=cp.float32)
+    num_batches = 1
+    for d in broadcast_shape:
+        num_batches *= d
+
     grid_size = (16, 16)
     block_size = (32, 32)
     matmul_kernel(
         grid_size,
         block_size,
-        (a.shape[0], a.shape[1], b.shape[1], a, b, result),
+        (
+            a.shape[-2],
+            a.shape[-1],
+            b.shape[-1],
+            num_batches,
+            a_broadcast,
+            b_broadcast,
+            result,
+        ),
     )
     return result
