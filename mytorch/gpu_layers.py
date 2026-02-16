@@ -23,4 +23,8 @@ class Sigmoid:
         # TODO: broadcasting sure would make this part easier
         one = GpuTensor(cp.ones_like(input.value))
         result = one / (one + (-input).exp())
+
+        # cut out the middleman, it's a very simple derivative
+        p = result.value
+        result.operations = [(input, "sigmoid", lambda acc: acc * (p * (1 - p)))]
         return result
