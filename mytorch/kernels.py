@@ -361,6 +361,8 @@ def matmul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
 
     # FIXME: we really don't want these copies, but that'll
     # make the kernel a lot more complex
+    # FIXME: I Wonder how often we actually need to broadcast. It might be
+    # worth checking and only copying if there's actually a bcast happening
     a_broadcast = cp.broadcast_to(a, broadcast_shape + a.shape[-2:]).copy()
     b_broadcast = cp.broadcast_to(b, broadcast_shape + b.shape[-2:]).copy()
     result = cp.empty(broadcast_shape + (a.shape[-2], b.shape[-1]), dtype=cp.float32)

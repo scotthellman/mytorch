@@ -9,19 +9,6 @@ from mytorch import kernels
 
 # type Operation = tuple[Tensor, str, Callable]
 
-add_code = r"""
-extern "C" __global__
-void add_kernel(const float* a, const float* b, float* out, int n) {
-    int tid = blockDim.x * blockIdx.x + threadIdx.x;
-    int stride = blockDim.x * gridDim.x;
-
-    for (int i = tid; i < n; i += stride){
-        out[i] = a[i] + b[i];
-    }
-}
-"""
-add_kernel = cp.RawKernel(add_code, "add_kernel")
-
 
 class GpuTensor:
     def __init__(
@@ -56,12 +43,14 @@ class GpuTensor:
 
     def __add__(self, b: GpuTensor) -> GpuTensor:
         result = kernels.add(self.value, b.value)
+        self_broadcast_axes = compute_broadcast_axes(self.value.shape, result.shape)
+        b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
-            return acc
+            return handle_broadcasting(acc, self_broadcast_axes, self.value.shape)
 
         def local_grad_b(acc: cp.ndarray) -> cp.ndarray:
-            return acc
+            return handle_broadcasting(acc, b_broadcast_axes, b.value.shape)
 
         operations = [
             (self, "add", local_grad_self),  # conceptually, 1*acc
@@ -71,12 +60,16 @@ class GpuTensor:
 
     def __sub__(self, b: GpuTensor) -> GpuTensor:
         result = kernels.sub(self.value, b.value)
+        self_broadcast_axes = compute_broadcast_axes(self.value.shape, result.shape)
+        b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
-            return acc
+            return handle_broadcasting(acc, self_broadcast_axes, self.value.shape)
 
         def local_grad_b(acc: cp.ndarray) -> cp.ndarray:
-            return kernels.neg(acc)
+            return handle_broadcasting(
+                kernels.neg(acc), b_broadcast_axes, b.value.shape
+            )
 
         operations = [(self, "sub", local_grad_self), (b, "sub", local_grad_b)]
         return GpuTensor(result, operations)
@@ -84,12 +77,18 @@ class GpuTensor:
     def __mul__(self, b: GpuTensor) -> GpuTensor:
         # elementwise
         result = kernels.mul(self.value, b.value)
+        self_broadcast_axes = compute_broadcast_axes(self.value.shape, result.shape)
+        b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
-            return kernels.mul(acc, b.value)
+            return handle_broadcasting(
+                kernels.mul(acc, b.value), self_broadcast_axes, self.value.shape
+            )
 
         def local_grad_b(acc: cp.ndarray) -> cp.ndarray:
-            return kernels.mul(acc, self.value)
+            return handle_broadcasting(
+                kernels.mul(acc, self.value), b_broadcast_axes, b.value.shape
+            )
 
         operations = [
             (self, "mul", local_grad_self),
@@ -109,12 +108,20 @@ class GpuTensor:
     def __truediv__(self, b: GpuTensor) -> GpuTensor:
         # elementwise
         result = kernels.div(self.value, b.value)
+        self_broadcast_axes = compute_broadcast_axes(self.value.shape, result.shape)
+        b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
-            return kernels.div(acc, b.value)
+            return handle_broadcasting(
+                kernels.div(acc, b.value), self_broadcast_axes, self.value.shape
+            )
 
         def local_grad_b(acc: cp.ndarray) -> cp.ndarray:
-            return kernels.div_local_grad(acc, self.value, b.value)
+            return handle_broadcasting(
+                kernels.div_local_grad(acc, self.value, b.value),
+                b_broadcast_axes,
+                b.value.shape,
+            )
 
         operations = [
             (self, "div", local_grad_self),
@@ -123,17 +130,22 @@ class GpuTensor:
         return GpuTensor(result, operations)
 
     def __matmul__(self, b: GpuTensor) -> GpuTensor:
-        # FIXME: broadcasting
         result = kernels.matmul(self.value, b.value)
+        self_broadcast_axes = compute_broadcast_axes(
+            self.value.shape, result.shape, matmul=True
+        )
+        b_broadcast_axes = compute_broadcast_axes(
+            b.value.shape, result.shape, matmul=True
+        )
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
-            # FIXME: i should implement swapaxes myself
+            # TODO: arguably I should implement this myself
             grad = kernels.matmul(acc, cp.swapaxes(b.value, -2, -1))
-            return grad
+            return handle_broadcasting(grad, self_broadcast_axes, self.value.shape)
 
         def local_grad_b(acc: cp.ndarray) -> cp.ndarray:
             grad = kernels.matmul(cp.swapaxes(self.value, -2, -1), acc)
-            return grad
+            return handle_broadcasting(grad, b_broadcast_axes, b.value.shape)
 
         operations = [
             (self, "matmul", local_grad_self),
@@ -145,3 +157,29 @@ class GpuTensor:
         result = kernels.exp(self.value)
         operations = [(self, "exp", lambda acc: acc * kernels.exp(self.value))]
         return GpuTensor(result, operations)
+
+
+# FIXME: yet another symptom of my messy cpu/gpu divide
+
+
+def compute_broadcast_axes(
+    start_shape: tuple[int], broadcast_shape: tuple[int], matmul: bool = False
+) -> tuple[int]:
+    altered_axes = []
+    start = -3 if matmul else -1
+    for i in range(start, -len(broadcast_shape) - 1, -1):
+        current = broadcast_shape[i]
+        if abs(i) > len(start_shape) or current != start_shape[i]:
+            altered_axes.append(len(broadcast_shape) + i)
+
+    return tuple(altered_axes)
+
+
+def handle_broadcasting(
+    path_gradient: cp.ndarray,
+    broadcast_axes: tuple[int],
+    target_shape: tuple[int],
+) -> cp.ndarray:
+    if broadcast_axes:
+        return cp.sum(path_gradient, axis=broadcast_axes).reshape(target_shape)
+    return path_gradient
