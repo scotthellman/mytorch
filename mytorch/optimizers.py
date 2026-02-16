@@ -6,5 +6,4 @@ def sgd_step(loss: Tensor, step_size: float):
     for t, grad in gradients.items():
         if t.frozen:
             continue
-        print(t.value.shape, grad.shape)
         t.value += -grad * step_size

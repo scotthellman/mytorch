@@ -141,10 +141,12 @@ class GpuTensor:
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
             # TODO: arguably I should implement this myself
             grad = kernels.matmul(acc, cp.swapaxes(b.value, -2, -1))
+            grad = acc @ cp.swapaxes(b.value, -2, -1)
             return handle_broadcasting(grad, self_broadcast_axes, self.value.shape)
 
         def local_grad_b(acc: cp.ndarray) -> cp.ndarray:
             grad = kernels.matmul(cp.swapaxes(self.value, -2, -1), acc)
+            grad = cp.swapaxes(self.value, -2, -1) @ acc
             return handle_broadcasting(grad, b_broadcast_axes, b.value.shape)
 
         operations = [
@@ -156,6 +158,17 @@ class GpuTensor:
     def exp(self) -> GpuTensor:
         result = kernels.exp(self.value)
         operations = [(self, "exp", lambda acc: acc * kernels.exp(self.value))]
+        return GpuTensor(result, operations)
+
+    def sum(self, axis: int | None = None) -> GpuTensor:
+        # FIXME: need to do this myself
+        result = cp.sum(self.value, axis=axis)
+
+        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+            grad = acc * cp.ones_like(self.value)
+            return grad
+
+        operations = [(self, "sum", local_grad_self)]
         return GpuTensor(result, operations)
 
 

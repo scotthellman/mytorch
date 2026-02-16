@@ -246,7 +246,8 @@ def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
     add_kernel(
         grid_size,
         block_size,
-        (broadcast.values[0], broadcast.values[1], result, n),
+        # FIXME: these copy calls are going to be a problem
+        (broadcast.values[0].copy(), broadcast.values[1].copy(), result, n),
     )
     return result
 
@@ -261,7 +262,7 @@ def sub(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
     sub_kernel(
         grid_size,
         block_size,
-        (broadcast.values[0], broadcast.values[1], result, n),
+        (broadcast.values[0].copy(), broadcast.values[1].copy(), result, n),
     )
     return result
 
@@ -276,7 +277,7 @@ def mul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
     mul_kernel(
         grid_size,
         block_size,
-        (broadcast.values[0], broadcast.values[1], result, n),
+        (broadcast.values[0].copy(), broadcast.values[1].copy(), result, n),
     )
     return result
 
@@ -291,7 +292,7 @@ def div(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
     div_kernel(
         grid_size,
         block_size,
-        (broadcast.values[0], broadcast.values[1], result, n),
+        (broadcast.values[0].copy(), broadcast.values[1].copy(), result, n),
     )
     return result
 
@@ -305,7 +306,13 @@ def div_local_grad(path: cp.ndarray, num: cp.ndarray, den: cp.ndarray) -> cp.nda
     div_local_grad_kernel(
         grid_size,
         block_size,
-        (broadcast.values[0], broadcast.values[1], broadcast.values[2], result, n),
+        (
+            broadcast.values[0].copy(),
+            broadcast.values[1].copy(),
+            broadcast.values[2].copy(),
+            result,
+            n,
+        ),
     )
     return result
 
@@ -354,7 +361,6 @@ def matmul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
             math.ceil(a.shape[-1] / (BLOCKSIZE * THREAD_WINDOW)),
             math.ceil(a.shape[-1] / (BLOCKSIZE * THREAD_WINDOW)),
         )
-
     a_batch = a.shape[:-2]
     b_batch = b.shape[:-2]
     broadcast_shape = cp.broadcast_shapes(a_batch, b_batch)

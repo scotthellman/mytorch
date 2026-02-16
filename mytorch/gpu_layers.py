@@ -6,10 +6,9 @@ from mytorch.gpu_tensor import GpuTensor
 class Linear:
     # y = xA.T + b
     def __init__(self, in_size: int, out_size: int, bias: bool):
-        # FIXME: need to worry more about how i initialize weights
-        weight_data = cp.random.random((in_size, out_size))
+        # TODO: We probably want to be more flexible about how we do this
+        weight_data = cp.random.normal(0, 0.2, (in_size, out_size))
         # FIXME: this is just a hack to keep things from blowing up on big sizes
-        weight_data = weight_data / weight_data.size
         self.weights = GpuTensor(weight_data, frozen=False)
         self.bias = GpuTensor(cp.array([[0.0] * out_size]), frozen=False)
 
