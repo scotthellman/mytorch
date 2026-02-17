@@ -6,11 +6,11 @@ from sklearn.model_selection import train_test_split
 from mytorch import gpu_layers, optimizers
 from mytorch.gpu_tensor import GpuTensor
 
-lr = 0.1
-batchsize = 1
-hiddensize = 20
-insize = 10
-outsize = 2
+lr = 0.001
+batchsize = 8
+hiddensize = 1000
+insize = 50
+outsize = 1
 epochs = 20
 network = [
     gpu_layers.Linear(insize, hiddensize, True),
@@ -44,4 +44,17 @@ for e in range(epochs):
         squared_loss = (loss * loss).sum()
         losses.append(float(squared_loss.value))
         optimizers.sgd_step(squared_loss, lr)
-    print(f"mean loss for epoch {e} was {np.mean(losses)}")
+        if cp.any(cp.isnan(processed.value)):
+            1 / 0
+    test_losses = []
+    for i in range(0, X_test.shape[0], batchsize):
+        X_batch = GpuTensor(X_test[i : i + batchsize])
+        y_batch = GpuTensor(y_test[i : i + batchsize])
+        processed = X_batch
+        for layer in network:
+            processed = layer.forward(processed)
+        loss = processed - y_batch
+        squared_loss = (loss * loss).sum()
+        test_losses.append(float(squared_loss.value))
+    print(f"mean train loss for epoch {e} was {np.mean(losses)}")
+    print(f"mean test loss for epoch {e} was {np.mean(test_losses)}")
