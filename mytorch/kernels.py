@@ -250,79 +250,85 @@ logistic_kernel = cp.RawKernel(logistic_code, "logistic_kernel")
 
 
 def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
-    broadcast = cp.broadcast(a, b)
-    result_shape = broadcast.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
+    broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
+    result = cp.empty(broadcast_shape, dtype=cp.float32)
+    a = broadcast_if_needed(a, broadcast_shape)
+    b = broadcast_if_needed(b, broadcast_shape)
     n = result.size
-    grid_size = (4,)
-    block_size = (256,)
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
     add_kernel(
         grid_size,
         block_size,
-        # FIXME: these copy calls are going to be a problem
-        (broadcast.values[0].copy(), broadcast.values[1].copy(), result, n),
+        (a, b, result, n),
     )
     return result
 
 
 def sub(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
-    broadcast = cp.broadcast(a, b)
-    result_shape = broadcast.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
+    broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
+    result = cp.empty(broadcast_shape, dtype=cp.float32)
+    a = broadcast_if_needed(a, broadcast_shape)
+    b = broadcast_if_needed(b, broadcast_shape)
     n = result.size
-    grid_size = (4,)
-    block_size = (256,)
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
     sub_kernel(
         grid_size,
         block_size,
-        (broadcast.values[0].copy(), broadcast.values[1].copy(), result, n),
+        (a, b, result, n),
     )
     return result
 
 
 def mul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
-    broadcast = cp.broadcast(a, b)
-    result_shape = broadcast.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
+    broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
+    result = cp.empty(broadcast_shape, dtype=cp.float32)
+    a = broadcast_if_needed(a, broadcast_shape)
+    b = broadcast_if_needed(b, broadcast_shape)
     n = result.size
-    grid_size = (4,)
-    block_size = (256,)
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
     mul_kernel(
         grid_size,
         block_size,
-        (broadcast.values[0].copy(), broadcast.values[1].copy(), result, n),
+        (a, b, result, n),
     )
     return result
 
 
 def div(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
-    broadcast = cp.broadcast(a, b)
-    result_shape = broadcast.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
+    broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
+    result = cp.empty(broadcast_shape, dtype=cp.float32)
+    a = broadcast_if_needed(a, broadcast_shape)
+    b = broadcast_if_needed(b, broadcast_shape)
     n = result.size
-    grid_size = (4,)
-    block_size = (256,)
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
     div_kernel(
         grid_size,
         block_size,
-        (broadcast.values[0].copy(), broadcast.values[1].copy(), result, n),
+        (a, b, result, n),
     )
     return result
 
 
 def div_local_grad(path: cp.ndarray, num: cp.ndarray, den: cp.ndarray) -> cp.ndarray:
-    broadcast = cp.broadcast(path, num, den)
-    result = cp.empty(broadcast.shape, dtype=cp.float32)
+    broadcast_shape = cp.broadcast_shapes(path.shape, num.shape, den.shape)
+    result = cp.empty(broadcast_shape, dtype=cp.float32)
     n = result.size
-    grid_size = (4,)
-    block_size = (256,)
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    path = broadcast_if_needed(path, broadcast_shape)
+    num = broadcast_if_needed(num, broadcast_shape)
+    den = broadcast_if_needed(den, broadcast_shape)
     div_local_grad_kernel(
         grid_size,
         block_size,
         (
-            broadcast.values[0].copy(),
-            broadcast.values[1].copy(),
-            broadcast.values[2].copy(),
+            path,
+            num,
+            den,
             result,
             n,
         ),
@@ -334,8 +340,8 @@ def neg(a: cp.ndarray) -> cp.ndarray:
     result_shape = a.shape
     result = cp.empty(result_shape, dtype=cp.float32)
     n = result.size
-    grid_size = (4,)
-    block_size = (256,)
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
     neg_kernel(
         grid_size,
         block_size,
@@ -348,8 +354,8 @@ def exp(a: cp.ndarray) -> cp.ndarray:
     result_shape = a.shape
     result = cp.empty(result_shape, dtype=cp.float32)
     n = result.size
-    grid_size = (4,)
-    block_size = (256,)
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
     exp_kernel(
         grid_size,
         block_size,
@@ -362,8 +368,8 @@ def logistic(a: cp.ndarray) -> cp.ndarray:
     result_shape = a.shape
     result = cp.empty(result_shape, dtype=cp.float32)
     n = result.size
-    grid_size = (4,)
-    block_size = (256,)
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
     logistic_kernel(
         grid_size,
         block_size,
@@ -394,10 +400,9 @@ def matmul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
 
     # FIXME: we really don't want these copies, but that'll
     # make the kernel a lot more complex
-    # FIXME: I Wonder how often we actually need to broadcast. It might be
-    # worth checking and only copying if there's actually a bcast happening
-    a_broadcast = cp.broadcast_to(a, broadcast_shape + a.shape[-2:]).copy()
-    b_broadcast = cp.broadcast_to(b, broadcast_shape + b.shape[-2:]).copy()
+    # bandaid fix for now: only copy if we really have to
+    a = broadcast_if_needed(a, broadcast_shape + a.shape[-2:])
+    b = broadcast_if_needed(b, broadcast_shape + b.shape[-2:])
     result = cp.empty(broadcast_shape + (a.shape[-2], b.shape[-1]), dtype=cp.float32)
     num_batches = 1
     for d in broadcast_shape:
@@ -412,9 +417,18 @@ def matmul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
             a.shape[-1],
             b.shape[-1],
             num_batches,
-            a_broadcast,
-            b_broadcast,
+            a,
+            b,
             result,
         ),
     )
     return result
+
+
+def broadcast_if_needed(a: cp.ndarray, broadcast_shape: tuple[int]) -> cp.ndarray:
+    # TODO: in the long run, we'd prefer not to copy at all. But that will
+    # (seemingly) complicate the kernels considerably - they'd need to be
+    # aware of the shape/stride info in cupy
+    if a.shape == broadcast_shape:
+        return a
+    return cp.broadcast_to(a, broadcast_shape).copy()
