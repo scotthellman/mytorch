@@ -143,15 +143,16 @@ void matmul(int m, int k, int n, int batches, const float* A, const float* B, fl
             for(int colOffset = 0; colOffset < THREAD_WINDOW; colOffset += 1){
                 for(int rowOffset = 0; rowOffset < THREAD_WINDOW; rowOffset += 1){
                     int localIndex = (threadY + rowOffset) * chunkSize + (threadX + colOffset);
-                    bool inBoundsK = chunkIdx+threadY < k && (chunkIdx+threadX) < k;
+                    bool inBoundsKA = chunkIdx + threadX < k;
+                    bool inBoundsKB = chunkIdx + threadY < k;
                     bool inBoundsM = (blockRow+threadY + rowOffset) < m;
-                    bool inBoundsN = (blockCol+threadX + rowOffset) < n;
-                    if(inBoundsM && inBoundsK){
+                    bool inBoundsN = (blockCol+threadX + colOffset) < n;
+                    if(inBoundsM && inBoundsKA){
                         As[localIndex] = A[(threadY + rowOffset) * k + (threadX + colOffset + chunkIdx)];
                     } else{
                         As[localIndex] = 0.0;
                     }
-                    if(inBoundsN && inBoundsK){
+                    if(inBoundsN && inBoundsKB){
                         Bs[localIndex] = B[(threadY + rowOffset + chunkIdx) * n + (threadX + colOffset)];
                     } else {
                         Bs[localIndex] = 0.0;
