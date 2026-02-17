@@ -132,7 +132,7 @@ void matmul(int m, int k, int n, int batches, const float* A, const float* B, fl
         // accumulate our partial dot products here
         float threadResults[THREAD_WINDOW * THREAD_WINDOW] = {0.0};
 
-        for(int chunkIdx = 0; chunkIdx < n; chunkIdx += chunkSize){
+        for(int chunkIdx = 0; chunkIdx < k; chunkIdx += chunkSize){
             // Assume that our pointers for A and B are always pointing to the first entry of the chunk we care about. 
 
             // Load the next chunk of A and B into shared memory. If we've run off the edge of the matrix load 0s instead
@@ -385,14 +385,17 @@ def matmul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
     if use_simple_kernel:
         kernel = low_k_matmul_kernel
         grid_size = (
-            math.ceil(a.shape[-1] / (BLOCKSIZE)),
-            math.ceil(a.shape[-1] / (BLOCKSIZE)),
+            math.ceil(a.shape[-2] / (BLOCKSIZE)),
+            math.ceil(b.shape[-1] / (BLOCKSIZE)),
         )
     else:
         kernel = matmul_kernel
+        # there's a footgun here: the x dimension of the grid
+        # is handling columns, so we need to pull the shapes from
+        # the "wrong" dimensions
         grid_size = (
-            math.ceil(a.shape[-1] / (BLOCKSIZE * THREAD_WINDOW)),
-            math.ceil(a.shape[-1] / (BLOCKSIZE * THREAD_WINDOW)),
+            math.ceil(b.shape[-1] / (BLOCKSIZE * THREAD_WINDOW)),
+            math.ceil(a.shape[-2] / (BLOCKSIZE * THREAD_WINDOW)),
         )
     a_batch = a.shape[:-2]
     b_batch = b.shape[:-2]
