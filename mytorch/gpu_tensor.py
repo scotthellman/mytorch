@@ -170,6 +170,37 @@ class GpuTensor:
         operations = [(self, "sum", local_grad_self)]
         return GpuTensor(result, operations)
 
+    def sqrt(self) -> GpuTensor:
+        result = kernels.sqrt(self.value)
+        half = cp.ones_like(self.value) * 0.5
+        operations = [(self, "sqrt", lambda acc: acc * half / kernels.sqrt(self.value))]
+        return GpuTensor(result, operations)
+
+    def mean(self, axis: int) -> GpuTensor:
+        # FIXME: need to do this myself
+        result = cp.mean(self.value, axis=axis, keepdims=True)
+        n = self.value.shape[axis]
+
+        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+            grad = acc * cp.ones_like(self.value) / n
+            return grad
+
+        operations = [(self, "sum", local_grad_self)]
+        return GpuTensor(result, operations)
+
+    def var(self, axis: int) -> GpuTensor:
+        # FIXME: need to do this myself
+        result = cp.var(self.value, axis=axis, keepdims=True)
+        mean = cp.mean(self.value, axis=axis, keepdims=True)
+        n = self.value.shape[axis]
+
+        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+            grad = acc * 2 / n * (self.value - mean)
+            return grad
+
+        operations = [(self, "sum", local_grad_self)]
+        return GpuTensor(result, operations)
+
 
 # FIXME: yet another symptom of my messy cpu/gpu divide
 

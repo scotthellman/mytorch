@@ -249,6 +249,19 @@ void logistic_kernel(const float* a, float* out, int n) {
 """
 logistic_kernel = cp.RawKernel(logistic_code, "logistic_kernel")
 
+sqrt_code = r"""
+extern "C" __global__
+void sqrt_kernel(const float* a, float* out, int n) {
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    for (int i = tid; i < n; i += stride){
+        out[i] = sqrtf(a[i]);
+    }
+}
+"""
+sqrt_kernel = cp.RawKernel(sqrt_code, "sqrt_kernel")
+
 
 def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
     broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
@@ -372,6 +385,20 @@ def logistic(a: cp.ndarray) -> cp.ndarray:
     block_size = (512,)
     grid_size = (math.ceil(result.size / block_size[0]),)
     logistic_kernel(
+        grid_size,
+        block_size,
+        (a, result, n),
+    )
+    return result
+
+
+def sqrt(a: cp.ndarray) -> cp.ndarray:
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    sqrt_kernel(
         grid_size,
         block_size,
         (a, result, n),
