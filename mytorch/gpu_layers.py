@@ -11,10 +11,16 @@ class Linear:
         weight_data = cp.random.normal(0, 0.2, (in_size, out_size))
         # FIXME: this is just a hack to keep things from blowing up on big sizes
         self.weights = GpuTensor(weight_data, frozen=False)
-        self.bias = GpuTensor(cp.array([[0.0] * out_size]), frozen=False)
+        if bias:
+            self.bias = GpuTensor(cp.array([[0.0] * out_size]), frozen=False)
+        else:
+            self.bias = None
 
     def forward(self, input: GpuTensor) -> GpuTensor:
-        result = input @ self.weights + self.bias
+        if self.bias:
+            result = input @ self.weights + self.bias
+        else:
+            result = input @ self.weights
         return result
 
 

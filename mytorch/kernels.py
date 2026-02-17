@@ -242,7 +242,7 @@ void logistic_kernel(const float* a, float* out, int n) {
     int stride = blockDim.x * gridDim.x;
 
     for (int i = tid; i < n; i += stride){
-        out[i] = 1.0 / (1 - exp(a[i]));
+        out[i] = 1.0 / (1 + exp(-a[i]));
     }
 }
 """
