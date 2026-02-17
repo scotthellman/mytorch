@@ -8,7 +8,7 @@ class Linear:
     # y = xA.T + b
     def __init__(self, in_size: int, out_size: int, bias: bool):
         # TODO: We probably want to be more flexible about how we do this
-        weight_data = cp.random.normal(0, 0.2, (in_size, out_size))
+        weight_data = cp.random.normal(0, 0.02, (in_size, out_size))
         # FIXME: this is just a hack to keep things from blowing up on big sizes
         self.weights = GpuTensor(weight_data, frozen=False)
         if bias:
