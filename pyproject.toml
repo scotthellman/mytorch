@@ -8,6 +8,7 @@ dependencies = [
     "cupy-cuda13x",
     "numpy>=2.4.2",
     "pytest>=9.0.2",
+    "scikit-learn>=1.8.0",
 ]
 
 
