@@ -140,11 +140,12 @@ class GpuTensor:
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
             # TODO: arguably I should implement this myself
-            grad = kernels.matmul(acc, cp.swapaxes(b.value, -2, -1))
+            # FIXME: especially now that i have to copy to make hte view concrete
+            grad = kernels.matmul(acc, cp.swapaxes(b.value, -2, -1).copy())
             return handle_broadcasting(grad, self_broadcast_axes, self.value.shape)
 
         def local_grad_b(acc: cp.ndarray) -> cp.ndarray:
-            grad = kernels.matmul(cp.swapaxes(self.value, -2, -1), acc)
+            grad = kernels.matmul(cp.swapaxes(self.value, -2, -1).copy(), acc)
             return handle_broadcasting(grad, b_broadcast_axes, b.value.shape)
 
         operations = [
