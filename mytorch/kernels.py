@@ -235,6 +235,19 @@ void exp_kernel(const float* a, float* out, int n) {
 """
 exp_kernel = cp.RawKernel(exp_code, "exp_kernel")
 
+logistic_code = r"""
+extern "C" __global__
+void logistic_kernel(const float* a, float* out, int n) {
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    for (int i = tid; i < n; i += stride){
+        out[i] = 1.0 / (1 - exp(a[i]));
+    }
+}
+"""
+logistic_kernel = cp.RawKernel(logistic_code, "logistic_kernel")
+
 
 def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
     broadcast = cp.broadcast(a, b)
@@ -338,6 +351,20 @@ def exp(a: cp.ndarray) -> cp.ndarray:
     grid_size = (4,)
     block_size = (256,)
     exp_kernel(
+        grid_size,
+        block_size,
+        (a, result, n),
+    )
+    return result
+
+
+def logistic(a: cp.ndarray) -> cp.ndarray:
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    n = result.size
+    grid_size = (4,)
+    block_size = (256,)
+    logistic_kernel(
         grid_size,
         block_size,
         (a, result, n),
