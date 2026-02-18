@@ -8,11 +8,12 @@ class Linear:
     # y = xA.T + b
     def __init__(self, in_size: int, out_size: int, bias: bool):
         # TODO: We probably want to be more flexible about how we do this
-        weight_data = cp.random.normal(0, 0.02, (in_size, out_size))
-        # FIXME: this is just a hack to keep things from blowing up on big sizes
+        weight_data = cp.random.normal(0, 0.02, (in_size, out_size), dtype=cp.float32)
         self.weights = GpuTensor(weight_data, frozen=False)
         if bias:
-            self.bias = GpuTensor(cp.array([[0.0] * out_size]), frozen=False)
+            self.bias = GpuTensor(
+                cp.array([[0.0] * out_size], dtype=cp.float32), frozen=False
+            )
         else:
             self.bias = None
 
@@ -48,3 +49,25 @@ class LayerNorm:
         variance = input.var(axis=-1)
         normed = demeaned / (variance + eps_vec).sqrt()
         return normed
+
+
+class Embedding:
+    def __init__(self, vocab_size: int, embedding_size: int):
+        weight_data = cp.random.normal(
+            0, 0.02, (vocab_size, embedding_size), dtype=cp.float32
+        )
+        self.weights = weight_data
+
+    def forward(self, input: GpuTensor) -> GpuTensor:
+        # making a hard assumption here: input is an int tensor
+        embedded = self.weights[input.value]
+
+        def local_grad(acc: cp.ndarray) -> cp.ndarray:
+            # so. the local grad here is just selecting the relevant rows
+            # so we need to expand acc out, 0ing any rows that weren't selected
+            # TODO: shame we have to make this big matrix. Something to think about
+            out = cp.zeros_like(self.weights)
+            out[input.value] = acc
+            return out
+
+        return GpuTensor(value=embedded, operations=[self, "embed", local_grad])
