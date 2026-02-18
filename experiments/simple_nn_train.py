@@ -6,17 +6,19 @@ from sklearn.model_selection import train_test_split
 from mytorch import gpu_layers, optimizers
 from mytorch.gpu_tensor import GpuTensor
 
-lr = 0.001
+lr = 0.0001
 batchsize = 8
-hiddensize = 1000
+hiddensize = 10
 insize = 50
 outsize = 1
 epochs = 20
 network = [
     gpu_layers.Linear(insize, hiddensize, True),
     gpu_layers.Sigmoid(),
+    gpu_layers.LayerNorm(),
     gpu_layers.Linear(hiddensize, hiddensize, True),
     gpu_layers.Sigmoid(),
+    gpu_layers.LayerNorm(),
     gpu_layers.Linear(hiddensize, outsize, True),
     gpu_layers.Sigmoid(),
 ]

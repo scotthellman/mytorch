@@ -17,7 +17,7 @@ class GpuTensor:
         operations: list | None = None,
         frozen=True,
     ):
-        self.value = cp.asarray(value, dtype=cp.float32)
+        self.value = value
         self.frozen = frozen
         if operations is None:
             self.operations = []
