@@ -143,8 +143,8 @@ void matmul(int m, int k, int n, int batches, const float* A, const float* B, fl
             for(int colOffset = 0; colOffset < THREAD_WINDOW; colOffset += 1){
                 for(int rowOffset = 0; rowOffset < THREAD_WINDOW; rowOffset += 1){
                     int localIndex = (threadY + rowOffset) * chunkSize + (threadX + colOffset);
-                    bool inBoundsKA = chunkIdx + threadX < k;
-                    bool inBoundsKB = chunkIdx + threadY < k;
+                    bool inBoundsKA = chunkIdx + threadX + colOffset < k;
+                    bool inBoundsKB = chunkIdx + threadY + rowOffset < k;
                     bool inBoundsM = (blockRow+threadY + rowOffset) < m;
                     bool inBoundsN = (blockCol+threadX + colOffset) < n;
                     if(inBoundsM && inBoundsKA){
@@ -261,6 +261,49 @@ void sqrt_kernel(const float* a, float* out, int n) {
 }
 """
 sqrt_kernel = cp.RawKernel(sqrt_code, "sqrt_kernel")
+
+# TODO: it's probably better to split up the max and ce computations
+cross_entropy_code = r"""
+extern "C" __global__
+void cross_entropy_kernel(const float* a, const int* target, float* out, float* grad_out, const int emb, const int batch) {
+    // assume we launched a grid that is large enough to cover all of the batches.
+    // So each thread is responsible for computing the cross entropy for
+    // one cell. 
+    // Note that this computes the gradient terms at the same time, since that reuses the softmax denominator
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    int batch_index = tid * emb;
+
+    // When is a thread out of bounds?
+    // when tid is bigger than batch
+    if(tid < batch){
+        // first we have to know the maximum value
+        int target_index = target[tid];
+        float target_value = a[batch_index + target_index];
+        float max_val = target_value;
+        for (int i = 0; i < emb; i++){
+            float current_val = a[batch_index + i];
+            max_val = max_val > current_val ? max_val : current_val;
+        }
+
+        // now we can compute the actual loss. This us using the LogSumExp trick
+        // for numerical stability in all of those exponents
+        float exp_sum = 0;
+        for (int i = 0; i < emb; i++){
+            exp_sum += exp(a[batch_index + i] - max_val);
+        }
+
+        // now we need to populate the outputs
+        // we need grad_out for everything, and out for the true values
+        out[tid] = -target_value + max_val + log(exp_sum);
+        for(int i = 0 ; i < emb; i++){
+            float true_label = i == target_index ? 1.0 : 0.0;
+            float log_prob = a[batch_index + i] - max_val - log(exp_sum);
+            grad_out[batch_index + i] = exp(log_prob) - true_label;
+        }
+    }
+}
+"""
+cross_entropy_kernel = cp.RawKernel(cross_entropy_code, "cross_entropy_kernel")
 
 
 def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
@@ -406,10 +449,28 @@ def sqrt(a: cp.ndarray) -> cp.ndarray:
     return result
 
 
+def cross_entropy(a: cp.ndarray, targets: cp.ndarray) -> cp.ndarray:
+    # For now I should be in very direct control of what's passed in here,
+    # so i'm ignoring broadcasting
+    result_shape = targets.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    grad_result = cp.empty(a.shape, dtype=cp.float32)
+    # we want the grid to cover all of targets
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(n / block_size[0]),)
+    cross_entropy_kernel(
+        grid_size,
+        block_size,
+        (a, targets, result, grad_result, a.shape[-1], n),
+    )
+    return result, grad_result
+
+
 def matmul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
     assert a.shape[-1] == b.shape[-2]
-    use_simple_kernel = a.shape[-1] < 32
-    # FIXME: tune this
+    # FIXME: tune this, there probably is some level at which the simpler one is faster
+    use_simple_kernel = False
     if use_simple_kernel:
         kernel = low_k_matmul_kernel
         grid_size = (

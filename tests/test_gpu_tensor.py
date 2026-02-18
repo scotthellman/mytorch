@@ -37,7 +37,7 @@ def test_add():
 
 
 def test_negation():
-    a = GpuTensor(cp.array([1.0, 2.0, 3.0]))
+    a = GpuTensor(cp.array([1.0, 2.0, 3.0], dtype=cp.float32))
     expected = -(a.value)
     result = -a
     assert cp.all(expected == result.value)
@@ -51,8 +51,8 @@ def test_negation():
 
 
 def test_subtraction():
-    a = GpuTensor(cp.array([1.0, 2.0, 3.0]))
-    b = GpuTensor(cp.array([3.0]))
+    a = GpuTensor(cp.array([1.0, 2.0, 3.0], dtype=cp.float32))
+    b = GpuTensor(cp.array([3.0], dtype=cp.float32))
     expected = a.value - b.value
     result = a - b
     assert cp.all(expected == result.value)
@@ -71,8 +71,8 @@ def test_subtraction():
 
 
 def test_multiplication():
-    a = GpuTensor(cp.array([1.0, 2.0, 3.0]))
-    b = GpuTensor(cp.array([3.0]))
+    a = GpuTensor(cp.array([1.0, 2.0, 3.0], dtype=cp.float32))
+    b = GpuTensor(cp.array([3.0], dtype=cp.float32))
     expected = a.value * b.value
     result = a * b
     assert cp.all(expected == result.value)
@@ -91,8 +91,8 @@ def test_multiplication():
 
 
 def test_division():
-    a = GpuTensor(cp.array([1.0, 2.0, 3.0]))
-    b = GpuTensor(cp.array([3.0]))
+    a = GpuTensor(cp.array([1.0, 2.0, 3.0], dtype=cp.float32))
+    b = GpuTensor(cp.array([3.0], dtype=cp.float32))
     expected = a.value / b.value
     result = a / b
     assert cp.all(expected == result.value)
@@ -111,8 +111,8 @@ def test_division():
 
 
 def test_matmul():
-    a = GpuTensor(cp.array([[1.0, 2.0, 3.0]]))
-    b = GpuTensor(cp.array([[3.0, 2.0, 1.0]]).T)
+    a = GpuTensor(cp.array([[1.0, 2.0, 3.0]], dtype=cp.float32))
+    b = GpuTensor(cp.array([[3.0, 2.0, 1.0]], dtype=cp.float32).T)
     expected = a.value @ b.value
     result = a @ b
     assert cp.all(expected == result.value)
@@ -121,12 +121,12 @@ def test_matmul():
 
     grad_input = cp.ones((1, 1), dtype=cp.float32)
 
-    expected_a_grad = cp.array([[3.0, 2.0, 1.0]])
+    expected_a_grad = cp.array([[3.0, 2.0, 1.0]], dtype=cp.float32)
     actual_a_grad = gradient_lookup[a](grad_input)
 
     assert cp.all(expected_a_grad == actual_a_grad)
 
-    expected_b_grad = cp.array([[1.0], [2.0], [3.0]])
+    expected_b_grad = cp.array([[1.0], [2.0], [3.0]], dtype=cp.float32)
     actual_b_grad = gradient_lookup[b](grad_input)
 
     assert cp.all(expected_b_grad == actual_b_grad)

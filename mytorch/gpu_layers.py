@@ -56,18 +56,44 @@ class Embedding:
         weight_data = cp.random.normal(
             0, 0.02, (vocab_size, embedding_size), dtype=cp.float32
         )
-        self.weights = weight_data
+        self.weights = GpuTensor(weight_data, frozen=False)
 
     def forward(self, input: GpuTensor) -> GpuTensor:
         # making a hard assumption here: input is an int tensor
-        embedded = self.weights[input.value]
+        embedded = self.weights.value[input.value]
 
         def local_grad(acc: cp.ndarray) -> cp.ndarray:
             # so. the local grad here is just selecting the relevant rows
             # so we need to expand acc out, 0ing any rows that weren't selected
             # TODO: shame we have to make this big matrix. Something to think about
-            out = cp.zeros_like(self.weights)
+            out = cp.zeros_like(self.weights.value)
             out[input.value] = acc
             return out
 
-        return GpuTensor(value=embedded, operations=[self, "embed", local_grad])
+        return GpuTensor(
+            value=embedded, operations=[(self.weights, "embed", local_grad)]
+        )
+
+
+# FIXME: not really a layer. Need to fix my organization
+class CrossEntropyLoss:
+    def forward(self, input: GpuTensor, target: GpuTensor) -> GpuTensor:
+        # This is not fully general - I'm only worrying about the case where the targets are not probas
+        # at which point, this is essentially the lot of the softmax of the relevant index
+        # we have to be a little fancy here to avoid numerical issues
+        # can't just compute softmax and then log it
+        # What shapes are at play here? input: (b, s, e). target: (b, s)
+        # Target essentially selects what e-index we are computing softmax wrt to for that b,s
+        # Then for each b,s, we compute log(softmax(x_target)). Define c = max(x[b,s]).
+        # Then, with some trickery, our loss is:
+        # x_target - c - log(sum(e^x_i-c))
+        loss, grad_info = kernels.cross_entropy(input.value, target.value)
+
+        # go ahead and assume we want to sum this
+        loss = loss.sum()
+
+        def local_grad(acc: cp.ndarray) -> cp.ndarray:
+            return acc * grad_info
+
+        # TODO: well this is a little clunky
+        return GpuTensor(value=loss, operations=[(input, "CrossEntropy", local_grad)])
