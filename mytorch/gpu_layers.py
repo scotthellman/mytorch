@@ -75,6 +75,114 @@ class Embedding:
         )
 
 
+class SelfAttention:
+    def __init__(self, embedding_size, key_size):
+        q_data = cp.random.normal(0, 0.02, (embedding_size, key_size), dtype=cp.float32)
+        self.Q = GpuTensor(q_data, frozen=False)
+        k_data = cp.random.normal(0, 0.02, (embedding_size, key_size), dtype=cp.float32)
+        self.K = GpuTensor(k_data, frozen=False)
+        v_data = cp.random.normal(0, 0.02, (embedding_size, key_size), dtype=cp.float32)
+        self.V = GpuTensor(v_data, frozen=False)
+        self.embedding_size = embedding_size
+        self.key_size = key_size
+
+    def forward(self, input: GpuTensor):
+        # TODO: this can have some special caching behavior at inference time (3.3.2 of the paper)
+        # let's be clear about shapes, as we go
+        # input: (b, s, emb)
+        # get our q,k,v values
+        # q,k,v are all (b,s,key)
+        q = input @ self.Q
+        k = input @ self.K
+        v = input @ self.V
+        # now we need to calculate our similarities. Have to stop going off of AIAYN now,
+        # switch to the linear attention paper
+        # if we were doing AIAYN, we would get: result = softmax((Q@K.T) / sqrt(self.key_size)) @ V
+        # but that softmax is very expensive, hence linear attention
+        # The paper defines: result = V_i = elu(Q_i).T * sum(elu(K_j)V_j.T) / [num with V]
+        # but they also nicely provide pseudocode, so I'll follow that
+        # We are making a choice here: i'm going for the decoder side, so we need causal masking
+
+        # these are still (b,s,key)
+        transformed_q = q.elu()
+        transformed_k = k.elu()
+
+        # S and Z from the paper
+        # these are updated as we go over the sequence, so they drop one sequence term
+        # that gives us (b,key,key)
+        s = cp.zeros(
+            (input.value.shape[0], self.key_size, self.key_size), dtype=cp.float32
+        )
+        z = cp.zeros_like(s)
+        # V' from the paper. shape is (b, s, key)
+
+        # compute numerator and denominator separately, so that we can cleanly
+        # split the custom backprop code out
+        # FIXME: get consistent about my qkv ordering!!
+        num = self.build_numerator(transformed_k, v, transformed_q)
+
+        denom = transformed_q.transpose_last() @ transformed_k.cumsum(axis=1)
+
+        result = num / denom
+
+        pass
+
+    def build_numerator(self, phi_k, v, phi_q):
+        s = cp.zeros(
+            (phi_k.value.shape[0], self.key_size, self.key_size), dtype=cp.float32
+        )
+        num = cp.zeros_like(phi_k)
+        for i in range(phi_k.value.shape[-2]):
+            s = s + phi_k[:, i, :, None] @ v[:, i, None, :]
+            num[:, i] = (phi_q[:, i, None, :] @ s).squeeze(-2)
+
+        # so we have the actual values, but we still need the gradients
+        # This gets messy - we're going to want to fuse these together
+        # in a kernel, but that will require some sort of closure to cache the
+        # the results after our first invocation. #FIXME for now i'm just sticking
+        # to python code that duplicates work
+        def local_grad_q(acc: cp.ndarray) -> cp.ndarray:
+            s = cp.zeros(
+                (phi_k.value.shape[0], self.key_size, self.key_size),
+                dtype=cp.float32,
+            )
+            grad = cp.zeros_like(phi_q)
+            for i in range(phi_k.value.shape[-2]):
+                s = s + phi_k[:, i, :, None] @ v[:, i, None, :]
+                grad[:, i] = (acc[:, i, None, :] @ s.swapaxes(-1, -2)).squeeze(-2)
+            return grad
+
+        def local_grad_v(acc: cp.ndarray) -> cp.ndarray:
+            s = cp.zeros(
+                (phi_k.value.shape[0], self.key_size, self.key_size),
+                dtype=cp.float32,
+            )
+            grad = cp.zeros_like(phi_k)
+            for i in range(phi_q.value.shape[-2], -1, -1):
+                s = s + phi_q[:, i, :, None] @ acc[:, i, None, :]
+                grad[:, i] = (s.swapaxes(-1, -2) @ phi_k[:, i, :, None]).squeeze(-1)
+            return grad
+
+        def local_grad_k(acc: cp.ndarray) -> cp.ndarray:
+            s = cp.zeros(
+                (phi_k.value.shape[0], self.key_size, self.key_size),
+                dtype=cp.float32,
+            )
+            grad = cp.zeros_like(phi_k)
+            for i in range(phi_q.value.shape[-2], -1, -1):
+                s = s + phi_q[:, i, :, None] @ acc[:, i, None, :]
+                grad[:, i] = (s @ v[:, i, :, None]).squeeze(-1)
+            return grad
+
+        ops = [
+            (phi_q, "attention_numerator", local_grad_q),
+            (phi_k, "attention_numerator", local_grad_k),
+            (v, "attention_numerator", local_grad_v),
+        ]
+
+        return GpuTensor(num, ops)
+
+
 # FIXME: not really a layer. Need to fix my organization
 class CrossEntropyLoss:
     def forward(self, input: GpuTensor, target: GpuTensor) -> GpuTensor:
