@@ -30,9 +30,11 @@ class Tensor:
         stack: list[tuple[Tensor, npt.NDArray[np.floating]]] = [
             (self, np.ones(self.value.shape, dtype=float))
         ]
+        names = set()
         while stack:
             current_variable, current_value = stack.pop()
             for child, name, op in current_variable.operations:
+                names.add(name)
                 child_grad = gradients.get(child, 0)
                 child_value = op(current_value)
                 gradients[child] = child_grad + child_value

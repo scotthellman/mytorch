@@ -13,11 +13,11 @@ from mytorch import kernels
 class GpuTensor:
     def __init__(
         self,
-        value: cp.ndarray[cp.float32],
+        value: cp.ndarray,
         operations: list | None = None,
         frozen=True,
     ):
-        self.value = value
+        self.value: cp.ndarray = value
         self.frozen = frozen
         if operations is None:
             self.operations = []
@@ -154,14 +154,20 @@ class GpuTensor:
         ]
         return GpuTensor(result, operations)
 
+    def add_constant(self, c: float) -> GpuTensor:
+        # FIXME: do this myself
+        result = self.value + c
+        operations = [(self, "+c", lambda acc: acc)]
+        return GpuTensor(result, operations)
+
     def exp(self) -> GpuTensor:
         result = kernels.exp(self.value)
         operations = [(self, "exp", lambda acc: acc * kernels.exp(self.value))]
         return GpuTensor(result, operations)
 
-    def sum(self, axis: int | None = None) -> GpuTensor:
+    def sum(self, axis: int | None = None, keepdims: bool = False) -> GpuTensor:
         # FIXME: need to do this myself
-        result = cp.sum(self.value, axis=axis)
+        result = cp.sum(self.value, axis=axis, keepdims=keepdims)
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
             grad = acc * cp.ones_like(self.value)
@@ -176,12 +182,12 @@ class GpuTensor:
         operations = [(self, "sqrt", lambda acc: acc * half / kernels.sqrt(self.value))]
         return GpuTensor(result, operations)
 
-    def mean(self, axis: int) -> GpuTensor:
+    def mean(self, axis: int | None = None) -> GpuTensor:
         # FIXME: need to do this myself
         result = cp.mean(self.value, axis=axis, keepdims=True)
-        n = self.value.shape[axis]
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+            n = self.value.size if axis is None else self.value.shape[axis]
             grad = acc * cp.ones_like(self.value) / n
             return grad
 
@@ -199,6 +205,45 @@ class GpuTensor:
             return grad
 
         operations = [(self, "sum", local_grad_self)]
+        return GpuTensor(result, operations)
+
+    def elu(self) -> GpuTensor:
+        # FIXME: need to do this myself
+        mask = self.value < 0
+        result = cp.copy(self.value)
+        result[mask] = cp.exp(result[mask]) - 1
+
+        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+            # nb assuming alpha is 1
+            grad = cp.ones_like(acc)
+            grad[mask] += result[mask]
+            return acc * grad
+
+        operations = [(self, "elu", local_grad_self)]
+
+        return GpuTensor(result, operations)
+
+    def cumsum(self, axis: int) -> GpuTensor:
+        # FIXME: need to do this myself
+        result = cp.cumsum(self.value, axis=axis)
+
+        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+            return cp.flip(cp.cumsum(cp.flip(acc, axis=axis), axis=axis), axis=axis)
+
+        operations = [(self, "cumsum", local_grad_self)]
+
+        return GpuTensor(result, operations)
+
+    def transpose_last(self) -> GpuTensor:
+        # NOTE: I give myself permission to not do this myself,
+        # I've been leaving indexing stuff to cupy
+        result = self.value.swapaxes(-1, -2)
+
+        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+            return acc.swapaxes(-1, -2)
+
+        operations = [(self, "T", local_grad_self)]
+
         return GpuTensor(result, operations)
 
 

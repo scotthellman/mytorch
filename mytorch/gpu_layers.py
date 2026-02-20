@@ -77,11 +77,11 @@ class Embedding:
 
 class SelfAttention:
     def __init__(self, embedding_size, key_size):
-        q_data = cp.random.normal(0, 0.02, (embedding_size, key_size), dtype=cp.float32)
+        q_data = cp.random.normal(0, 0.5, (embedding_size, key_size), dtype=cp.float32)
         self.Q = GpuTensor(q_data, frozen=False)
-        k_data = cp.random.normal(0, 0.02, (embedding_size, key_size), dtype=cp.float32)
+        k_data = cp.random.normal(0, 0.5, (embedding_size, key_size), dtype=cp.float32)
         self.K = GpuTensor(k_data, frozen=False)
-        v_data = cp.random.normal(0, 0.02, (embedding_size, key_size), dtype=cp.float32)
+        v_data = cp.random.normal(0, 0.1, (embedding_size, key_size), dtype=cp.float32)
         self.V = GpuTensor(v_data, frozen=False)
         self.embedding_size = embedding_size
         self.key_size = key_size
@@ -104,16 +104,9 @@ class SelfAttention:
         # We are making a choice here: i'm going for the decoder side, so we need causal masking
 
         # these are still (b,s,key)
-        transformed_q = q.elu()
-        transformed_k = k.elu()
+        transformed_q = q.elu().add_constant(1)
+        transformed_k = k.elu().add_constant(1)
 
-        # S and Z from the paper
-        # these are updated as we go over the sequence, so they drop one sequence term
-        # that gives us (b,key,key)
-        s = cp.zeros(
-            (input.value.shape[0], self.key_size, self.key_size), dtype=cp.float32
-        )
-        z = cp.zeros_like(s)
         # V' from the paper. shape is (b, s, key)
 
         # compute numerator and denominator separately, so that we can cleanly
@@ -121,18 +114,28 @@ class SelfAttention:
         # FIXME: get consistent about my qkv ordering!!
         num = self.build_numerator(transformed_k, v, transformed_q)
 
-        denom = transformed_q.transpose_last() @ transformed_k.cumsum(axis=1)
+        # denom is of shape (b, s, 1)
+        # we want the dot product of q_i and the partial sum of k_i
+        # We implement that with an elementwise muilt and then summing over the final dim
+        denom = (
+            (transformed_q * transformed_k.cumsum(axis=1))
+            .sum(axis=-1, keepdims=True)
+            .add_constant(1e-6)
+        )
 
         result = num / denom
 
-        pass
+        return result
 
-    def build_numerator(self, phi_k, v, phi_q):
-        s = cp.zeros(
-            (phi_k.value.shape[0], self.key_size, self.key_size), dtype=cp.float32
-        )
+    def build_numerator(
+        self, phi_k_tensor: GpuTensor, v_tensor: GpuTensor, phi_q_tensor: GpuTensor
+    ) -> GpuTensor:
+        phi_k = phi_k_tensor.value
+        phi_q = phi_q_tensor.value
+        v = v_tensor.value
+        s = cp.zeros((phi_k.shape[0], self.key_size, self.key_size), dtype=cp.float32)
         num = cp.zeros_like(phi_k)
-        for i in range(phi_k.value.shape[-2]):
+        for i in range(phi_k.shape[-2]):
             s = s + phi_k[:, i, :, None] @ v[:, i, None, :]
             num[:, i] = (phi_q[:, i, None, :] @ s).squeeze(-2)
 
@@ -143,41 +146,41 @@ class SelfAttention:
         # to python code that duplicates work
         def local_grad_q(acc: cp.ndarray) -> cp.ndarray:
             s = cp.zeros(
-                (phi_k.value.shape[0], self.key_size, self.key_size),
+                (phi_k.shape[0], self.key_size, self.key_size),
                 dtype=cp.float32,
             )
             grad = cp.zeros_like(phi_q)
-            for i in range(phi_k.value.shape[-2]):
+            for i in range(phi_k.shape[-2]):
                 s = s + phi_k[:, i, :, None] @ v[:, i, None, :]
                 grad[:, i] = (acc[:, i, None, :] @ s.swapaxes(-1, -2)).squeeze(-2)
             return grad
 
         def local_grad_v(acc: cp.ndarray) -> cp.ndarray:
             s = cp.zeros(
-                (phi_k.value.shape[0], self.key_size, self.key_size),
+                (phi_k.shape[0], self.key_size, self.key_size),
                 dtype=cp.float32,
             )
             grad = cp.zeros_like(phi_k)
-            for i in range(phi_q.value.shape[-2], -1, -1):
+            for i in range(phi_q.shape[-2] - 1, -1, -1):
                 s = s + phi_q[:, i, :, None] @ acc[:, i, None, :]
                 grad[:, i] = (s.swapaxes(-1, -2) @ phi_k[:, i, :, None]).squeeze(-1)
             return grad
 
         def local_grad_k(acc: cp.ndarray) -> cp.ndarray:
             s = cp.zeros(
-                (phi_k.value.shape[0], self.key_size, self.key_size),
+                (phi_k.shape[0], self.key_size, self.key_size),
                 dtype=cp.float32,
             )
             grad = cp.zeros_like(phi_k)
-            for i in range(phi_q.value.shape[-2], -1, -1):
+            for i in range(phi_q.shape[-2] - 1, -1, -1):
                 s = s + phi_q[:, i, :, None] @ acc[:, i, None, :]
                 grad[:, i] = (s @ v[:, i, :, None]).squeeze(-1)
             return grad
 
         ops = [
-            (phi_q, "attention_numerator", local_grad_q),
-            (phi_k, "attention_numerator", local_grad_k),
-            (v, "attention_numerator", local_grad_v),
+            (phi_q_tensor, "attention_numerator_q", local_grad_q),
+            (phi_k_tensor, "attention_numerator_k", local_grad_k),
+            (v_tensor, "attention_numerator_v", local_grad_v),
         ]
 
         return GpuTensor(num, ops)
@@ -198,10 +201,12 @@ class CrossEntropyLoss:
         loss, grad_info = kernels.cross_entropy(input.value, target.value)
 
         # go ahead and assume we want to sum this
-        loss = loss.sum()
+        # FIXME: turns out this is using cupy operations still
+        n = loss.size
+        loss = loss.mean()
 
         def local_grad(acc: cp.ndarray) -> cp.ndarray:
-            return acc * grad_info
+            return acc * grad_info / n
 
         # TODO: well this is a little clunky
         return GpuTensor(value=loss, operations=[(input, "CrossEntropy", local_grad)])
