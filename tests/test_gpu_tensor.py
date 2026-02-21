@@ -1,8 +1,35 @@
 import cupy as cp
+import pytest
 
 from mytorch.gpu_tensor import GpuTensor
 
 ONE = cp.array([1.0], dtype=cp.float32)
+
+
+@pytest.fixture
+def two_d_tensor():
+    return GpuTensor(
+        cp.array(
+            [
+                [1, 0.1, -1],
+                [1.3, -1.3, 0.1],
+                [0.2, -0.4, 2.3],
+            ],
+            dtype=cp.float32,
+        )
+    )
+
+
+@pytest.fixture
+def one_d_tensor():
+    return GpuTensor(
+        cp.array(
+            [
+                [1, 0.1, -1],
+            ],
+            dtype=cp.float32,
+        )
+    )
 
 
 def build_gradient_lookup(ops):
@@ -154,135 +181,151 @@ def test_batch_matmul():
     assert cp.all(expected_b_grad == actual_b_grad)
 
 
+def evaluate_empirical_grad(tensor, loss_func, eps=1e-3):
+    computed_grads = loss_func(tensor).compute_gradient()[tensor]
+    for i in range(tensor.value.shape[0]):
+        for j in range(tensor.value.shape[1]):
+            old_val = float(tensor.value[i, j])
+            tensor.value[i, j] -= eps
+            left_loss = loss_func(tensor)
+            tensor.value[i, j] = old_val + eps
+            right_loss = loss_func(tensor)
+            empirical_grad = (right_loss.value - left_loss.value) / (2 * eps)
+            computed_grad = computed_grads[i, j]
+            # working with float32, so we can't be too particular about tolerances here
+            assert cp.allclose(empirical_grad, computed_grad, rtol=1e-3, atol=1e-2)
+            tensor.value[i, j] = old_val
+
+
+def test_add_grad(two_d_tensor):
+    right = GpuTensor(cp.copy(two_d_tensor.value + 5))
+
+    def left_loss_func(x):
+        return (x + right).sum()
+
+    def right_loss_func(x):
+        return (two_d_tensor + x).sum()
+
+    evaluate_empirical_grad(two_d_tensor, left_loss_func)
+    evaluate_empirical_grad(right, right_loss_func)
+
+
+def test_sub_grad(two_d_tensor):
+    right = GpuTensor(cp.copy(two_d_tensor.value + 5))
+
+    def left_loss_func(x):
+        return (x - right).sum()
+
+    def right_loss_func(x):
+        return (two_d_tensor - x).sum()
+
+    evaluate_empirical_grad(two_d_tensor, left_loss_func)
+    evaluate_empirical_grad(right, right_loss_func)
+
+
+def test_mult_grad(two_d_tensor):
+    right = GpuTensor(cp.copy(two_d_tensor.value + 2))
+
+    def left_loss_func(x):
+        return (x * right).sum()
+
+    def right_loss_func(x):
+        return (two_d_tensor * x).sum()
+
+    evaluate_empirical_grad(two_d_tensor, left_loss_func)
+    evaluate_empirical_grad(right, right_loss_func)
+
+
+def test_matmul_grad(two_d_tensor):
+    right = GpuTensor(cp.copy(two_d_tensor.value + 1))
+
+    def left_loss_func(x):
+        return (x @ right).sum()
+
+    def right_loss_func(x):
+        return (two_d_tensor @ x).sum()
+
+    evaluate_empirical_grad(two_d_tensor, left_loss_func, eps=1e-2)
+    evaluate_empirical_grad(right, right_loss_func, eps=1e-2)
+
+
 def test_div_grad():
-    weights = GpuTensor(cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 3)))
-    divisor = GpuTensor(cp.array([0.1, 0.2, 0.3], dtype=cp.float32).reshape((1, 3)))
-    result = (weights / divisor).sum()
+    numerator = GpuTensor(cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 3)))
+    denominator = GpuTensor(cp.array([0.1, 0.2, 0.3], dtype=cp.float32).reshape((1, 3)))
 
-    grads = result.compute_gradient()
+    def num_loss_func(x):
+        return (x / denominator).sum()
 
-    eps = 1e-4
-    for i in range(weights.value.shape[0]):
-        for j in range(weights.value.shape[1]):
-            old_val = float(weights.value[i, j])
-            weights.value[i, j] += eps
-            new_result = (weights / divisor).sum()
-            empirical_grad = (new_result.value - result.value) / eps
-            computed_grad = grads[weights][i, j]
-            assert cp.allclose(empirical_grad, computed_grad, rtol=1e-3, atol=1e-3), (
-                weights
-            )
-            weights.value[i, j] = old_val
+    def den_loss_func(x):
+        return (numerator / x).sum()
+
+    evaluate_empirical_grad(numerator, num_loss_func)
+    evaluate_empirical_grad(denominator, den_loss_func)
 
 
-def test_mean_grad():
-    weights = GpuTensor(cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 3)))
-    result = weights.mean()
+def test_add_constant_grad(two_d_tensor):
+    def loss_func(x):
+        return x.add_constant(3).sum()
 
-    grads = result.compute_gradient()
-
-    eps = 1e-4
-    for i in range(weights.value.shape[0]):
-        for j in range(weights.value.shape[1]):
-            old_val = float(weights.value[i, j])
-            weights.value[i, j] += eps
-            new_result = weights.mean()
-            empirical_grad = (new_result.value - result.value) / eps
-            computed_grad = grads[weights][i, j]
-            assert cp.allclose(empirical_grad, computed_grad, rtol=1e-3, atol=1e-3), (
-                weights
-            )
-            weights.value[i, j] = old_val
+    evaluate_empirical_grad(two_d_tensor, loss_func)
 
 
-def test_var_grad():
-    weights = GpuTensor(cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 3)))
-    result = weights.var(axis=-1)
+def test_exp_constant_grad(two_d_tensor):
+    def loss_func(x):
+        return x.exp().sum()
 
-    grads = result.compute_gradient()
-
-    eps = 1e-4
-    for i in range(weights.value.shape[0]):
-        for j in range(weights.value.shape[1]):
-            old_val = float(weights.value[i, j])
-            weights.value[i, j] += eps
-            new_result = weights.var(axis=-1)
-            empirical_grad = (new_result.value - result.value) / eps
-            computed_grad = grads[weights][i, j]
-            assert cp.allclose(empirical_grad, computed_grad, rtol=1e-3, atol=1e-3), (
-                weights
-            )
-            weights.value[i, j] = old_val
+    evaluate_empirical_grad(two_d_tensor, loss_func)
 
 
-def test_sqrt_grad():
-    weights = GpuTensor(cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 3)))
-    result = weights.sqrt().sum()
+def test_sum_grad(two_d_tensor):
+    def loss_func(x):
+        return x.sum()
 
-    grads = result.compute_gradient()
-
-    eps = 1e-4
-    for i in range(weights.value.shape[0]):
-        for j in range(weights.value.shape[1]):
-            old_val = float(weights.value[i, j])
-            weights.value[i, j] += eps
-            new_result = weights.sqrt().sum()
-            empirical_grad = (new_result.value - result.value) / eps
-            computed_grad = grads[weights][i, j]
-            assert cp.allclose(empirical_grad, computed_grad, rtol=1e-3, atol=1e-3), (
-                weights
-            )
-            weights.value[i, j] = old_val
+    evaluate_empirical_grad(two_d_tensor, loss_func)
 
 
-def test_elu_grad():
-    weights = GpuTensor(cp.array([0.2, -2.4, 0.1], dtype=cp.float32).reshape((1, 3)))
-    result = weights.elu().sum()
+def test_mean_grad(two_d_tensor):
+    def loss_func(x):
+        return x.mean()
 
-    grads = result.compute_gradient()
-
-    eps = 1e-4
-    for i in range(weights.value.shape[0]):
-        for j in range(weights.value.shape[1]):
-            old_val = float(weights.value[i, j])
-            weights.value[i, j] += eps
-            new_result = weights.elu().sum()
-            empirical_grad = (new_result.value - result.value) / eps
-            computed_grad = grads[weights][i, j]
-            assert cp.allclose(empirical_grad, computed_grad, rtol=1e-3, atol=1e-3), (
-                weights
-            )
-            weights.value[i, j] = old_val
+    evaluate_empirical_grad(two_d_tensor, loss_func)
 
 
-# FIXME: stop writin the same boilerplate code over and over
-def test_cumsum_grad():
-    weights = GpuTensor(
-        cp.array(
-            [
-                [1, 0, -1],
-                [1.3, -1.3, 0.1],
-                [0.2, -0.4, 20.3],
-            ],
-            dtype=cp.float32,
-        )
-    )
-    result = weights.cumsum(-1).sum()
-    print(weights.cumsum(-1).value)
+def test_var_grad(two_d_tensor):
+    def loss_func(x):
+        return x.var(axis=-1).mean()
 
-    grads = result.compute_gradient()
+    evaluate_empirical_grad(two_d_tensor, loss_func)
 
-    eps = 1e-3
-    for i in range(weights.value.shape[0]):
-        for j in range(weights.value.shape[1]):
-            old_val = float(weights.value[i, j])
-            weights.value[i, j] += eps
-            right_result = weights.cumsum(-1).sum()
-            weights.value[i, j] = old_val - eps
-            left_result = weights.cumsum(-1).sum()
-            empirical_grad = (right_result.value - left_result.value) / (2 * eps)
-            computed_grad = grads[weights][i, j]
-            assert cp.allclose(empirical_grad, computed_grad, rtol=1e-3, atol=1e-3), (
-                weights
-            )
-            weights.value[i, j] = old_val
+
+def test_sqrt_grad(two_d_tensor):
+    # can't have negatives in here
+    two_d_tensor = two_d_tensor * two_d_tensor
+
+    def loss_func(x):
+        return x.sqrt().mean()
+
+    evaluate_empirical_grad(two_d_tensor, loss_func)
+
+
+def test_elu_grad(two_d_tensor):
+    def loss_func(x):
+        return x.elu().mean()
+
+    evaluate_empirical_grad(two_d_tensor, loss_func)
+
+
+def test_cumsum_grad(two_d_tensor):
+    def loss_func(x):
+        return x.cumsum(-1).mean()
+
+    evaluate_empirical_grad(two_d_tensor, loss_func)
+
+
+def test_transpose_last_grad(two_d_tensor):
+    def loss_func(x):
+        # need transposing to actually matter
+        transposed = x.transpose_last()
+        return transposed.cumsum(axis=-1).mean()
+
+    evaluate_empirical_grad(two_d_tensor, loss_func)
