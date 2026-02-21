@@ -38,12 +38,15 @@ def test_sigmoid():
     assert cp.allclose(expected, backpropped)
 
 
-def test_self_attention():
+def test_self_attention_grad():
     layer = gpu_layers.SelfAttention(3, 1)
     # force the weights into a known state
     layer.Q.value = cp.array([[0.0], [0.0], [-0.0]], dtype=cp.float32)
     layer.K.value = cp.array([[0.2], [0.1], [0.1]], dtype=cp.float32)
     layer.V.value = cp.array([[-0.2], [0.2], [0.2]], dtype=cp.float32)
+    print("Q", layer.Q)
+    print("K", layer.K)
+    print("V", layer.V)
 
     # we want to pass in (1,1,3) - the most basic test possible
     input = GpuTensor(cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 1, 3)))
@@ -52,15 +55,97 @@ def test_self_attention():
     target = GpuTensor(cp.array([[[2]]], dtype=cp.float32))
     loss = result - target
     grads = loss.compute_gradient()
-    relevant_grad = grads[layer.Q][1, 0]
 
     eps = 1e-4
-    layer.Q.value[1, 0] += eps
-    new_result = layer.forward(input)
-    new_loss = new_result - target
+    for weights in layer.params:
+        for i in range(weights.value.shape[0]):
+            for j in range(weights.value.shape[1]):
+                old_val = float(weights.value[i, j])
+                weights.value[i, j] += eps
+                result = layer.forward(input)
+                eps_loss = result - target
+                empirical_grad = (eps_loss.value - loss.value) / eps
+                computed_grad = grads[weights][i, j]
+                assert cp.allclose(
+                    empirical_grad, computed_grad, rtol=1e-3, atol=1e-3
+                ), weights
+                weights.value[i, j] = old_val
 
-    delta = (new_loss.value - loss.value) / eps
 
-    print(delta)
-    print(relevant_grad)
-    assert cp.allclose(delta.value, relevant_grad)
+def test_linear_grad():
+    layer = gpu_layers.Linear(3, 1, False)
+
+    input = GpuTensor(cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 1, 3)))
+    result = layer.forward(input).sum()
+
+    grads = result.compute_gradient()
+
+    eps = 1e-4
+    for weights in layer.params:
+        for i in range(weights.value.shape[0]):
+            for j in range(weights.value.shape[1]):
+                old_val = float(weights.value[i, j])
+                weights.value[i, j] += eps
+                new_result = layer.forward(input).sum()
+                empirical_grad = (new_result.value - result.value) / eps
+                computed_grad = grads[weights][i, j]
+                assert cp.allclose(
+                    empirical_grad, computed_grad, rtol=1e-3, atol=1e-3
+                ), weights
+                weights.value[i, j] = old_val
+
+
+def test_sigmoid_grad():
+    layer = gpu_layers.Sigmoid()
+
+    weights = GpuTensor(cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 3)))
+    result = layer.forward(weights).sum()
+
+    grads = result.compute_gradient()
+
+    eps = 1e-4
+    for i in range(weights.value.shape[0]):
+        for j in range(weights.value.shape[1]):
+            old_val = float(weights.value[i, j])
+            weights.value[i, j] += eps
+            new_result = layer.forward(weights).sum()
+            empirical_grad = (new_result.value - result.value) / eps
+            computed_grad = grads[weights][i, j]
+            assert cp.allclose(empirical_grad, computed_grad, rtol=1e-3, atol=1e-3), (
+                weights
+            )
+            weights.value[i, j] = old_val
+
+
+def test_layer_norm_grad():
+    layer = gpu_layers.LayerNorm()
+
+    weights = GpuTensor(
+        cp.array(
+            [
+                [1, 0, -1],
+                [1.3, 0.1, 0.1],
+                [0.2, -0.4, 20.3],
+            ],
+            dtype=cp.float32,
+        )
+    )
+    result = layer.forward(weights)
+    # can't just sum result directly, by defn layernorm will have made that 0
+    loss = (result * result).sum()
+
+    grads = result.compute_gradient()
+
+    eps = 1e-6
+    for i in range(weights.value.shape[0]):
+        for j in range(weights.value.shape[1]):
+            old_val = float(weights.value[i, j])
+            weights.value[i, j] += eps
+            new_result = layer.forward(weights)
+            new_loss = (new_result * new_result).sum()
+            empirical_grad = (new_loss.value - loss.value) / eps
+            computed_grad = grads[weights][i, j]
+            assert cp.allclose(empirical_grad, computed_grad, rtol=1e-3, atol=1e-3), (
+                weights
+            )
+            weights.value[i, j] = old_val
