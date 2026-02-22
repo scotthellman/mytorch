@@ -160,6 +160,12 @@ class GpuTensor:
         operations = [(self, "+c", lambda acc: acc)]
         return GpuTensor(result, operations)
 
+    def mult_constant(self, c: float) -> GpuTensor:
+        # FIXME: do this myself
+        result = self.value * c
+        operations = [(self, "*c", lambda acc: c * acc)]
+        return GpuTensor(result, operations)
+
     def exp(self) -> GpuTensor:
         result = kernels.exp(self.value)
         operations = [(self, "exp", lambda acc: acc * kernels.exp(self.value))]
