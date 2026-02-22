@@ -1,35 +1,9 @@
 import cupy as cp
-import pytest
+from utils import evaluate_empirical_grad
 
 from mytorch.gpu_tensor import GpuTensor
 
 ONE = cp.array([1.0], dtype=cp.float32)
-
-
-@pytest.fixture
-def two_d_tensor():
-    return GpuTensor(
-        cp.array(
-            [
-                [1, 0.1, -1],
-                [1.3, -1.3, 0.1],
-                [0.2, -0.4, 2.3],
-            ],
-            dtype=cp.float32,
-        )
-    )
-
-
-@pytest.fixture
-def one_d_tensor():
-    return GpuTensor(
-        cp.array(
-            [
-                [1, 0.1, -1],
-            ],
-            dtype=cp.float32,
-        )
-    )
 
 
 def build_gradient_lookup(ops):
@@ -179,22 +153,6 @@ def test_batch_matmul():
     actual_b_grad = gradient_lookup[b](grad_input)
 
     assert cp.all(expected_b_grad == actual_b_grad)
-
-
-def evaluate_empirical_grad(tensor, loss_func, eps=1e-3):
-    computed_grads = loss_func(tensor).compute_gradient()[tensor]
-    for i in range(tensor.value.shape[0]):
-        for j in range(tensor.value.shape[1]):
-            old_val = float(tensor.value[i, j])
-            tensor.value[i, j] -= eps
-            left_loss = loss_func(tensor)
-            tensor.value[i, j] = old_val + eps
-            right_loss = loss_func(tensor)
-            empirical_grad = (right_loss.value - left_loss.value) / (2 * eps)
-            computed_grad = computed_grads[i, j]
-            # working with float32, so we can't be too particular about tolerances here
-            assert cp.allclose(empirical_grad, computed_grad, rtol=1e-3, atol=1e-2)
-            tensor.value[i, j] = old_val
 
 
 def test_add_grad(two_d_tensor):
