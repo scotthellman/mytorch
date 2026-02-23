@@ -82,6 +82,22 @@ class Embedding:
         )
 
 
+class AdditivePositionalEncoding:
+    def forward(self, input: GpuTensor):
+        # this is painfully inefficient
+        positions = cp.zeros(input.value.shape[-2:], dtype=cp.float32)
+        for s in range(positions.shape[0]):
+            for d in range(positions.shape[1]):
+                den = 100000 ** (2 * d / positions.shape[1])
+                if d % 2 == 0:
+                    positions[s, d] = cp.sin(s / den)
+                else:
+                    positions[s, d] = cp.cos(s / den)
+        positions = GpuTensor(positions)
+        input = input + positions
+        return input
+
+
 class SelfAttention:
     def __init__(self, embedding_size, key_size):
         q_data = cp.random.normal(0, 0.5, (embedding_size, key_size), dtype=cp.float32)
