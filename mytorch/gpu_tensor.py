@@ -252,6 +252,18 @@ class GpuTensor:
 
         return GpuTensor(result, operations)
 
+    def transpose(self, indices) -> GpuTensor:
+        # NOTE: I give myself permission to not do this myself,
+        # I've been leaving indexing stuff to cupy
+        result = self.value[..., indices]
+
+        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+            return acc[..., indices]
+
+        operations = [(self, "swapaxes", local_grad_self)]
+
+        return GpuTensor(result, operations)
+
 
 # FIXME: yet another symptom of my messy cpu/gpu divide
 

@@ -34,15 +34,13 @@ class Adam:
             if t.frozen:
                 continue
 
+            last_m = self.means.get(t, GpuTensor(cp.zeros_like(grad)))
+            last_v = self.vars.get(t, GpuTensor(cp.zeros_like(grad)))
             grad = GpuTensor(grad)
 
-            m = grad
-            last_m = self.means.get(t)
-            if last_m is not None:
-                m = last_m.mult_constant(self.b1) + m.mult_constant(1 - self.b1)
+            m = last_m.mult_constant(self.b1) + grad.mult_constant(1 - self.b1)
 
             v = grad * grad
-            last_v = self.vars.get(t)
             if last_v is not None:
                 v = last_v.mult_constant(self.b2) + v.mult_constant(1 - self.b2)
 
