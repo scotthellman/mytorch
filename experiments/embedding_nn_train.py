@@ -4,16 +4,16 @@ import numpy as np
 from mytorch import gpu_layers, optimizers
 from mytorch.gpu_tensor import GpuTensor
 
-lr = 0.02
+lr = 0.002
 batchsize = 8
-hiddensize = 10
+hiddensize = 32
 vocabsize = 4
-epochs = 5
-n_samples = 500
-seq_length = 3
+epochs = 30
+n_samples = 200
+seq_length = 2
 network = [
     gpu_layers.Embedding(vocabsize, hiddensize),
-    gpu_layers.SelfAttention(hiddensize, hiddensize),
+    gpu_layers.SelfAttention(hiddensize, 2),
     gpu_layers.Linear(hiddensize, hiddensize, True),
     gpu_layers.Sigmoid(),
     gpu_layers.LayerNorm(),
@@ -32,10 +32,11 @@ y = []
 for i in range(n_samples):
     vec = cp.random.randint(0, vocabsize, size=seq_length)
     X.append(vec)
-    y.append(vec)
+    # y.append(vec)
     # this objective is trivial _if_ we're mixing information across seq steps
     # impossible otherwise
-    # y.append(cp.roll(vec, shift=1))
+    y.append(cp.roll(vec, shift=1))
+    y[-1][0] = 0
 X = cp.vstack(X)
 y = cp.vstack(y, dtype=cp.int32)
 
@@ -51,9 +52,8 @@ for e in range(epochs):
             processed = layer.forward(processed)
 
         if cp.any(cp.isnan(processed.value)):
-            print(cp.any(cp.isnan(network[1].K.value)))
-            print(cp.any(cp.isnan(network[1].K.value)))
-            print(cp.any(cp.isnan(network[1].K.value)))
+            print(cp.any(cp.isnan(network[1].weights.value)))
+            print(processed.value)
             1 / 0
         loss = loss_func.forward(processed, y_batch)
         losses.append(float(loss.value))

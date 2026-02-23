@@ -99,16 +99,22 @@ class AdditivePositionalEncoding:
 
 
 class SelfAttention:
-    def __init__(self, embedding_size, key_size):
-        q_data = cp.random.normal(0, 0.5, (embedding_size, key_size), dtype=cp.float32)
-        self.Q = GpuTensor(q_data, frozen=False)
-        k_data = cp.random.normal(0, 0.5, (embedding_size, key_size), dtype=cp.float32)
-        self.K = GpuTensor(k_data, frozen=False)
-        v_data = cp.random.normal(0, 0.1, (embedding_size, key_size), dtype=cp.float32)
-        self.V = GpuTensor(v_data, frozen=False)
+    def __init__(self, embedding_size, n_heads=1):
+        assert embedding_size % n_heads == 0
+        weight_data = cp.random.normal(
+            0, 0.1, (embedding_size, embedding_size * 3), dtype=cp.float32
+        )
+        self.weights = GpuTensor(weight_data, frozen=False)
+        # q_data = cp.random.normal(0, 0.5, (embedding_size, key_size), dtype=cp.float32)
+        # self.Q = GpuTensor(q_data, frozen=False)
+        # k_data = cp.random.normal(0, 0.5, (embedding_size, key_size), dtype=cp.float32)
+        # self.K = GpuTensor(k_data, frozen=False)
+        # v_data = cp.random.normal(0, 0.1, (embedding_size, key_size), dtype=cp.float32)
+        # self.V = GpuTensor(v_data, frozen=False)
         self.embedding_size = embedding_size
-        self.key_size = key_size
-        self.params = [self.Q, self.K, self.V]
+        self.n_heads = n_heads
+        self.key_size = embedding_size // n_heads
+        self.params = [self.weights]
 
     def forward(self, input: GpuTensor):
         # TODO: this can have some special caching behavior at inference time (3.3.2 of the paper)
@@ -116,9 +122,10 @@ class SelfAttention:
         # input: (b, s, emb)
         # get our q,k,v values
         # q,k,v are all (b,s,key)
-        q = input @ self.Q
-        k = input @ self.K
-        v = input @ self.V
+        qwk = input @ self.weights
+        q = qwk[..., : self.embedding_size]
+        k = qwk[..., self.embedding_size : self.embedding_size * 2]
+        v = qwk[..., self.embedding_size * 2 :]
         # now we need to calculate our similarities. Have to stop going off of AIAYN now,
         # switch to the linear attention paper
         # if we were doing AIAYN, we would get: result = softmax((Q@K.T) / sqrt(self.key_size)) @ V
@@ -127,17 +134,25 @@ class SelfAttention:
         # but they also nicely provide pseudocode, so I'll follow that
         # We are making a choice here: i'm going for the decoder side, so we need causal masking
 
+        # now we want to split into our heads
+        q = q.reshape((input.value.shape[0], -1, self.n_heads, self.key_size))
+        k = k.reshape((input.value.shape[0], -1, self.n_heads, self.key_size))
+        v = v.reshape((input.value.shape[0], -1, self.n_heads, self.key_size))
+
+        # shuffle n_heads to be one of the batch dims
+        q = q.transpose(1, 2)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
+
         # these are still (b,s,key)
         transformed_q = q.elu().add_constant(1)
         transformed_k = k.elu().add_constant(1)
 
-        # V' from the paper. shape is (b, s, key)
-
         # compute numerator and denominator separately, so that we can cleanly
         # split the custom backprop code out
-        # FIXME: get consistent about my qkv ordering!!
+
         num = self.build_numerator(
-            self.rotate(transformed_k), v, self.rotate(transformed_q)
+            self.rotate(transformed_q), self.rotate(transformed_k), v
         )
 
         # denom is of shape (b, s, 1)
@@ -150,6 +165,12 @@ class SelfAttention:
         )
 
         result = num / denom
+
+        # now we need to reassemble from the multiheads
+        result = result.transpose(1, 2)
+        result = result.reshape(
+            (input.value.shape[0], input.value.shape[1], self.key_size * self.n_heads)
+        )
 
         return result
 
@@ -166,8 +187,12 @@ class SelfAttention:
             tensor.value.shape[0],
             axis=0,
         ).astype(cp.float32)
-        cosines = GpuTensor(cp.cos(broadcast_indices * thetas))
-        sines = GpuTensor(cp.sin(broadcast_indices * thetas))
+        tiled_shape = list(tensor.value.shape)
+        # we don't need any replication in the -2 dim
+        tiled_shape[-2] = 1
+        broadcast_indices = cp.tile(seq_indices[:, None], tiled_shape)
+        cosines = GpuTensor(cp.cos(broadcast_indices * thetas).astype(cp.float32))
+        sines = GpuTensor(cp.sin(broadcast_indices * thetas).astype(cp.float32))
         # now the only trick is we have to swapaxes the sin tensor
         cos_term = tensor * cosines
         # FIXME: figure out how to do this faster
@@ -178,13 +203,13 @@ class SelfAttention:
         negations = GpuTensor(
             ((cp.arange(emb_dim) % 2 == 0) * 2 - 1).astype(cp.float32)
         )
-        swapped_tensor = (tensor * negations).transpose(swapped_indices)
+        swapped_tensor = (tensor * negations).permute(swapped_indices)
         sin_term = swapped_tensor * sines
 
         return cos_term + sin_term
 
     def build_numerator(
-        self, phi_k_tensor: GpuTensor, v_tensor: GpuTensor, phi_q_tensor: GpuTensor
+        self, phi_q_tensor: GpuTensor, phi_k_tensor: GpuTensor, v_tensor: GpuTensor
     ) -> GpuTensor:
         # we need to rotate k and q here
         # the real question: how does that impact the gradient?
@@ -195,11 +220,14 @@ class SelfAttention:
         phi_k = phi_k_tensor.value
         phi_q = phi_q_tensor.value
         v = v_tensor.value
-        s = cp.zeros((phi_k.shape[0], self.key_size, self.key_size), dtype=cp.float32)
+        s = cp.zeros(
+            (phi_k.shape[0], phi_k.shape[1], self.key_size, self.key_size),
+            dtype=cp.float32,
+        )
         num = cp.zeros_like(phi_k)
         for i in range(phi_k.shape[-2]):
-            s = s + phi_k[:, i, :, None] @ v[:, i, None, :]
-            num[:, i] = (phi_q[:, i, None, :] @ s).squeeze(-2)
+            s = s + phi_k[..., i, :, None] @ v[..., i, None, :]
+            num[..., i, :] = (phi_q[..., i, None, :] @ s).squeeze(-2)
 
         # so we have the actual values, but we still need the gradients
         # This gets messy - we're going to want to fuse these together
@@ -208,35 +236,39 @@ class SelfAttention:
         # to python code that duplicates work
         def local_grad_q(acc: cp.ndarray) -> cp.ndarray:
             s = cp.zeros(
-                (phi_k.shape[0], self.key_size, self.key_size),
+                (phi_k.shape[0], phi_k.shape[1], self.key_size, self.key_size),
                 dtype=cp.float32,
             )
             grad = cp.zeros_like(phi_q)
             for i in range(phi_k.shape[-2]):
-                s = s + phi_k[:, i, :, None] @ v[:, i, None, :]
-                grad[:, i] = (acc[:, i, None, :] @ s.swapaxes(-1, -2)).squeeze(-2)
+                s = s + phi_k[..., i, :, None] @ v[..., i, None, :]
+                grad[..., i, :] = (acc[..., i, None, :] @ s.swapaxes(-1, -2)).squeeze(
+                    -2
+                )
             return grad
 
         def local_grad_v(acc: cp.ndarray) -> cp.ndarray:
             s = cp.zeros(
-                (phi_k.shape[0], self.key_size, self.key_size),
+                (phi_k.shape[0], phi_k.shape[1], self.key_size, self.key_size),
                 dtype=cp.float32,
             )
             grad = cp.zeros_like(phi_k)
             for i in range(phi_q.shape[-2] - 1, -1, -1):
-                s = s + phi_q[:, i, :, None] @ acc[:, i, None, :]
-                grad[:, i] = (s.swapaxes(-1, -2) @ phi_k[:, i, :, None]).squeeze(-1)
+                s = s + phi_q[..., i, :, None] @ acc[..., i, None, :]
+                grad[..., i, :] = (s.swapaxes(-1, -2) @ phi_k[..., i, :, None]).squeeze(
+                    -1
+                )
             return grad
 
         def local_grad_k(acc: cp.ndarray) -> cp.ndarray:
             s = cp.zeros(
-                (phi_k.shape[0], self.key_size, self.key_size),
+                (phi_k.shape[0], phi_k.shape[1], self.key_size, self.key_size),
                 dtype=cp.float32,
             )
             grad = cp.zeros_like(phi_k)
             for i in range(phi_q.shape[-2] - 1, -1, -1):
-                s = s + phi_q[:, i, :, None] @ acc[:, i, None, :]
-                grad[:, i] = (s @ v[:, i, :, None]).squeeze(-1)
+                s = s + phi_q[..., i, :, None] @ acc[..., i, None, :]
+                grad[..., i, :] = (s @ v[..., i, :, None]).squeeze(-1)
             return grad
 
         ops = [

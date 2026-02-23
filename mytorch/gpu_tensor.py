@@ -41,6 +41,28 @@ class GpuTensor:
 
         return gradients
 
+    def __getitem__(self, key) -> GpuTensor:
+        result = self.value[key]
+
+        def local_grad(acc: cp.ndarray):
+            grad = cp.zeros_like(self.value)
+            grad[key] = acc
+            return grad
+
+        return GpuTensor(result, [(self, "index", local_grad)])
+
+    def reshape(self, shape: tuple[int]) -> GpuTensor:
+        result = self.value.reshape(shape)
+
+        def local_grad(acc: cp.ndarray) -> cp.ndarray:
+            return acc.reshape(self.value.shape)
+
+        operations = [
+            (self, "reshape", local_grad),
+        ]
+
+        return GpuTensor(result, operations)
+
     def __add__(self, b: GpuTensor) -> GpuTensor:
         result = kernels.add(self.value, b.value)
         self_broadcast_axes = compute_broadcast_axes(self.value.shape, result.shape)
@@ -243,16 +265,21 @@ class GpuTensor:
     def transpose_last(self) -> GpuTensor:
         # NOTE: I give myself permission to not do this myself,
         # I've been leaving indexing stuff to cupy
-        result = self.value.swapaxes(-1, -2)
+        return self.transpose(-1, -2)
+
+    def transpose(self, i: int, j: int) -> GpuTensor:
+        # NOTE: I give myself permission to not do this myself,
+        # I've been leaving indexing stuff to cupy
+        result = self.value.swapaxes(i, j)
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
-            return acc.swapaxes(-1, -2)
+            return acc.swapaxes(i, j)
 
         operations = [(self, "T", local_grad_self)]
 
         return GpuTensor(result, operations)
 
-    def transpose(self, indices) -> GpuTensor:
+    def permute(self, indices) -> GpuTensor:
         # NOTE: I give myself permission to not do this myself,
         # I've been leaving indexing stuff to cupy
         result = self.value[..., indices]
