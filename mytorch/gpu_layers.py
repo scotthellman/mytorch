@@ -159,7 +159,7 @@ class SelfAttention:
         # we want the dot product of q_i and the partial sum of k_i
         # We implement that with an elementwise muilt and then summing over the final dim
         denom = (
-            (transformed_q * transformed_k.cumsum(axis=1))
+            (transformed_q * transformed_k.cumsum(axis=2))
             .sum(axis=-1, keepdims=True)
             .add_constant(1e-6)
         )
