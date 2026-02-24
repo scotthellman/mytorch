@@ -305,6 +305,76 @@ void cross_entropy_kernel(const float* a, const int* target, float* out, float* 
 """
 cross_entropy_kernel = cp.RawKernel(cross_entropy_code, "cross_entropy_kernel")
 
+# having each thread deal with one whole layer seems like a good balance of easy and fast
+layernorm_code = r"""
+extern "C" __global__
+void layernorm_kernel(const float* a, float* out, float* inv_vars, float* norms, int emb_size, int total_size, float eps) {
+    int embless_tid = (blockDim.x * blockIdx.x + threadIdx.x);
+    int embless_stride = blockDim.x * gridDim.x;
+    int batch_dim_size = total_size / emb_size;
+
+    for (int stride_index = 0; stride_index + embless_tid < batch_dim_size; stride_index += embless_stride){
+        // we need to compute the mean and variance of this layer
+        // i is this thread's index into the batch dims
+        int i = embless_tid + stride_index;
+        float mean = 0.0;
+        float var = 0.0;
+        // ok so unfortunately this is very bad coalescing behavior. Something to think about for a v2
+        for (int j = 0; j < emb_size; j++) {
+            float value = a[i*emb_size+j];
+            float delta = value - mean;
+            mean += (delta)/float(j+1);
+            var += delta * (value - mean);
+        }
+        var /= emb_size;
+
+        // and now, for every value, we subtract the mean, divided by sqrt(var+eps)
+        for (int j = 0; j < emb_size; j++) {
+            float norm = a[i*emb_size+j] - mean;
+            out[i*emb_size+j] = (norm) / sqrt(var + eps);
+            norms[i*emb_size+j] = norm;
+        }
+
+        inv_vars[i] = 1.0/var;
+    }
+}
+"""
+layernorm_kernel = cp.RawKernel(layernorm_code, "layernorm_kernel")
+
+# https://github.com/karpathy/llm.c/blob/master/doc/layernorm/layernorm.md
+layernorm_back_code = r"""
+extern "C" __global__
+void layernorm_back_kernel(const float* a, const float* inv_vars, const float* norms, float* out, int emb_size, int total_size) {
+    int embless_tid = (blockDim.x * blockIdx.x + threadIdx.x);
+    int embless_stride = blockDim.x * gridDim.x;
+    int batch_dim_size = total_size / emb_size;
+
+    for (int stride_index = 0; stride_index + embless_tid < batch_dim_size; stride_index += embless_stride){
+        // first we need the mean of the incoming grads, and of the incoming grads * the norms
+        int i = embless_tid + stride_index;
+        float grad_mean = 0.0;
+        float mult_mean = 0.0;
+        for (int j = 0; j < emb_size; j++) {
+            float grad_value = a[i*emb_size+j];
+            float grad_delta = grad_value - grad_mean;
+            grad_mean += (grad_delta)/float(j+1);
+
+            float norm_value = norms[i*emb_size+j];
+            float mult_mean_delta = (norm_value * grad_value) - mult_mean;
+            mult_mean += mult_mean_delta/float(j+1);
+        }
+        
+        // and now, for every value: grad - grad_mean - norm*mult_mean
+        // all that is then * inv var
+        for (int j = 0; j < emb_size; j++) {
+            float result = sqrt(inv_vars[i]) * (a[i*emb_size+j] - grad_mean - norms[i*emb_size+j]*mult_mean) * inv_vars[i];
+            out[i*emb_size+j] = result;
+        }
+    }
+}
+"""
+layernorm_back_kernel = cp.RawKernel(layernorm_back_code, "layernorm_back_kernel")
+
 
 def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
     broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
@@ -524,3 +594,51 @@ def broadcast_if_needed(a: cp.ndarray, broadcast_shape: tuple[int]) -> cp.ndarra
     if a.shape == broadcast_shape:
         return a
     return cp.broadcast_to(a, broadcast_shape).copy()
+
+
+def layernorm(a: cp.ndarray, eps: float = 1e-6) -> cp.ndarray:
+    # Hard assumption here that we are operating on the last dimension
+    # TODO: probably want the affine transformation part of this too
+    emb_size = a.shape[-1]
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    # TODO: storing norms is a big memory hog, but simplifies the back kernel. Maybe change that
+    norms = cp.empty(result_shape, dtype=cp.float32)
+    inv_vars = cp.empty(result_shape[:-1], dtype=cp.float32)
+    # we want the grid to cover all of targets
+    n = result.size
+    block_size = (512,)
+    grid_size = (
+        math.ceil(
+            n / (emb_size * block_size[0]),
+        ),
+    )
+    layernorm_kernel(
+        grid_size,
+        block_size,
+        (a, result, inv_vars, norms, a.shape[-1], n, eps),
+    )
+    grad_data = (inv_vars, norms)
+    return result, grad_data
+
+
+def layernorm_back(
+    a: cp.ndarray, inv_vars: cp.ndarray, norms: cp.ndarray
+) -> cp.ndarray:
+    emb_size = a.shape[-1]
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    # we want the grid to cover all of targets
+    n = result.size
+    block_size = (512,)
+    grid_size = (
+        math.ceil(
+            n / (emb_size * block_size[0]),
+        ),
+    )
+    layernorm_back_kernel(
+        grid_size,
+        block_size,
+        (a, inv_vars, norms, result, a.shape[-1], n),
+    )
+    return result

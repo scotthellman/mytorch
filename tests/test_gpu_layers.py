@@ -39,21 +39,31 @@ def test_sigmoid():
     assert cp.allclose(expected, backpropped)
 
 
+def test_layer_norm():
+    layer = gpu_layers.LayerNorm(eps=0)
+    tensor = GpuTensor(cp.array([[2, 1, 0], [1, 1, 0]], dtype=cp.float32))
+
+    expected = cp.array(
+        [[1.2247448, 0.0, -1.2247448], [0.7071067, 0.7071067, -1.4142135]],
+        dtype=cp.float32,
+    )
+
+    result = layer.forward(tensor)
+
+    assert cp.allclose(expected, result.value)
+
+
 def test_self_attention_grad():
-    layer = gpu_layers.SelfAttention(3, 1)
-    # force the weights into a known state
-    layer.Q.value = cp.array([[0.0], [0.0], [-0.0]], dtype=cp.float32)
-    layer.K.value = cp.array([[0.2], [0.1], [0.1]], dtype=cp.float32)
-    layer.V.value = cp.array([[-0.2], [0.2], [0.2]], dtype=cp.float32)
-    tensor = GpuTensor(cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 1, 3)))
+    layer = gpu_layers.SelfAttention(4, 1)
+    tensor = GpuTensor(
+        cp.array([0.2, 0.4, 0.1, 0.0], dtype=cp.float32).reshape((1, 1, 4))
+    )
 
     def loss_func(x):
         result = layer.forward(tensor).sum()
         return result
 
-    evaluate_empirical_grad(layer.Q, loss_func)
-    evaluate_empirical_grad(layer.K, loss_func)
-    evaluate_empirical_grad(layer.V, loss_func)
+    evaluate_empirical_grad(layer.weights, loss_func)
 
 
 def test_linear_grad(two_d_tensor):
@@ -69,7 +79,15 @@ def test_linear_grad(two_d_tensor):
 def test_sigmoid_grad(two_d_tensor):
     layer = gpu_layers.Sigmoid()
 
-    result = layer.forward(two_d_tensor).sum()
+    def loss_func(x):
+        result = layer.forward(two_d_tensor).sum()
+        return result
+
+    evaluate_empirical_grad(two_d_tensor, loss_func)
+
+
+def test_layer_norm_grad(two_d_tensor):
+    layer = gpu_layers.LayerNorm(eps=0)
 
     def loss_func(x):
         result = layer.forward(two_d_tensor).sum()

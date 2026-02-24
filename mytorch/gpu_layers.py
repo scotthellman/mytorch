@@ -46,15 +46,13 @@ class LayerNorm:
 
     def forward(self, input: GpuTensor) -> GpuTensor:
         # So, for this to work, we need:
-        # mean, variance, sqrt
-        # FIXME: We can worry about a fused kernel after, let's just get it working
-        # FIXME: this will only work after linear layers, it's not as general as pytorch's
-        # (assumes input is 2d)
-        eps_vec = GpuTensor(cp.ones_like(input.value) * self.eps)
-        demeaned = input - input.mean(axis=-1)
-        variance = input.var(axis=-1)
-        normed = demeaned / (variance + eps_vec).sqrt()
-        return normed
+        normed, grad_terms = kernels.layernorm(input.value, eps=self.eps)
+
+        def local_grad(acc: cp.ndarray) -> cp.ndarray:
+            return kernels.layernorm_back(acc, grad_terms[0], grad_terms[1])
+
+        ops = [(input, "layernorm", local_grad)]
+        return GpuTensor(normed, ops)
 
 
 class Embedding:
@@ -134,6 +132,8 @@ class SelfAttention:
         # but they also nicely provide pseudocode, so I'll follow that
         # We are making a choice here: i'm going for the decoder side, so we need causal masking
 
+        # multihead indexing reference: https://github.com/Whiax/BERT-Transformer-Pytorch/blob/main/train.py#L50
+
         # now we want to split into our heads
         q = q.reshape((input.value.shape[0], -1, self.n_heads, self.key_size))
         k = k.reshape((input.value.shape[0], -1, self.n_heads, self.key_size))
@@ -175,6 +175,7 @@ class SelfAttention:
         return result
 
     def rotate(self, tensor: GpuTensor):
+        # NOTE: this assumes an even number of dimensions
         # we're specifically rotating the final dim based on the penultimate index
         # everything above that is just batched
         emb_dim = tensor.value.shape[-1]
