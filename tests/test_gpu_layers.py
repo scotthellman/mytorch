@@ -58,6 +58,7 @@ def test_self_attention_grad():
     tensor = GpuTensor(
         cp.array([0.2, 0.4, 0.1, 0.0], dtype=cp.float32).reshape((1, 1, 4))
     )
+    layer.forward(tensor)
 
     def loss_func(x):
         result = layer.forward(tensor).sum()

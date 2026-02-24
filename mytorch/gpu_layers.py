@@ -178,46 +178,18 @@ class SelfAttention:
         # NOTE: this assumes an even number of dimensions
         # we're specifically rotating the final dim based on the penultimate index
         # everything above that is just batched
-        emb_dim = tensor.value.shape[-1]
-        seq_length = tensor.value.shape[-2]
-        indices = cp.repeat(cp.arange(emb_dim // 2, dtype=cp.float32), 2)
-        thetas = 10000 ** (-2 * indices / emb_dim)
-        seq_indices = cp.arange(1, seq_length + 1)
-        broadcast_indices = cp.repeat(
-            cp.repeat(seq_indices[None, :, None], emb_dim, axis=-1),
-            tensor.value.shape[0],
-            axis=0,
-        ).astype(cp.float32)
-        tiled_shape = list(tensor.value.shape)
-        # we don't need any replication in the -2 dim
-        tiled_shape[-2] = 1
-        broadcast_indices = cp.tile(seq_indices[:, None], tiled_shape)
-        cosines = GpuTensor(cp.cos(broadcast_indices * thetas).astype(cp.float32))
-        sines = GpuTensor(cp.sin(broadcast_indices * thetas).astype(cp.float32))
-        # now the only trick is we have to swapaxes the sin tensor
-        cos_term = tensor * cosines
-        # FIXME: figure out how to do this faster
-        swapped_indices = []
-        for i in range(emb_dim // 2):
-            swapped_indices.append(2 * i + 1)
-            swapped_indices.append(2 * i)
-        negations = GpuTensor(
-            ((cp.arange(emb_dim) % 2 == 0) * 2 - 1).astype(cp.float32)
-        )
-        swapped_tensor = (tensor * negations).permute(swapped_indices)
-        sin_term = swapped_tensor * sines
+        result = kernels.rope(tensor.value)
 
-        return cos_term + sin_term
+        def local_grad(acc: cp.ndarray) -> cp.ndarray:
+            return kernels.rope(acc, backward=True)
+
+        ops = [(tensor, "rope", local_grad)]
+
+        return GpuTensor(result, ops)
 
     def build_numerator(
         self, phi_q_tensor: GpuTensor, phi_k_tensor: GpuTensor, v_tensor: GpuTensor
     ) -> GpuTensor:
-        # we need to rotate k and q here
-        # the real question: how does that impact the gradient?
-        # i think the trick is: build an interim rotates tensor that controls
-        # its own backprop. Then the rest of our backprop should work correctly
-        # via autograd
-
         phi_k = phi_k_tensor.value
         phi_q = phi_q_tensor.value
         v = v_tensor.value

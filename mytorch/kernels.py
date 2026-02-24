@@ -376,6 +376,36 @@ void layernorm_back_kernel(const float* a, const float* inv_vars, const float* n
 layernorm_back_kernel = cp.RawKernel(layernorm_back_code, "layernorm_back_kernel")
 
 
+rope_code = r"""
+extern "C" __global__
+void rope_kernel(const float* a, float* out, int emb_size, int seq_size, int batch_size, bool backward) {
+    const int x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int y = blockIdx.y * blockDim.y + threadIdx.y;
+    const int z = blockIdx.z * blockDim.z + threadIdx.z;
+    const float theta_sign = backward ? -1.0: 1.0;
+
+    // for coalescing purposes: x indexes into embedding, y into sequence
+    // z handles the batch dims
+    // arguably one thread should handle 2 indices, but that's future work
+
+    bool in_bounds = z < batch_size && y < seq_size && x < emb_size;
+
+    if(in_bounds) {
+        float theta = theta_sign * pow(10000.0, -2.0*float(x/2)/float(emb_size));
+
+        int true_index = z*seq_size*emb_size + y*emb_size + x;
+        int sin_index = true_index + (1 - 2*(true_index/2));
+
+        float cos_val = a[true_index] * cos((y+1.0) * theta);
+        float sin_val = a[sin_index] * sin((y+1.0) * theta);
+        float sign = (-2 * (sin_index%2)) + 1;
+        out[true_index] = cos_val + sign * sin_val;
+    }
+}
+"""
+rope_kernel = cp.RawKernel(rope_code, "rope_kernel")
+
+
 def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
     broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
     result = cp.empty(broadcast_shape, dtype=cp.float32)
@@ -640,5 +670,35 @@ def layernorm_back(
         grid_size,
         block_size,
         (a, inv_vars, norms, result, a.shape[-1], n),
+    )
+    return result
+
+
+def rope(a: cp.ndarray, backward: bool = False) -> cp.ndarray:
+    emb_size = a.shape[-1]
+    seq_size = a.shape[-2]
+    batch_size = 1
+    for s in a.shape[:-2]:
+        batch_size *= s
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    # we want the grid to cover all of targets
+    # x is emb, y is seq, z is batch
+    block_size = (32, 4, 2)
+    grid_size = (
+        math.ceil(
+            emb_size / block_size[0],
+        ),
+        math.ceil(
+            seq_size / block_size[1],
+        ),
+        math.ceil(
+            batch_size / block_size[2],
+        ),
+    )
+    rope_kernel(
+        grid_size,
+        block_size,
+        (a, result, emb_size, seq_size, batch_size, backward),
     )
     return result
