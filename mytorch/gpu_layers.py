@@ -38,21 +38,34 @@ class Sigmoid:
         return GpuTensor(value=p, operations=operations)
 
 
+class Elu:
+    def __init__(self):
+        self.params = []
+
+    def forward(self, input: GpuTensor) -> GpuTensor:
+        return input.elu()
+
+
 class LayerNorm:
-    def __init__(self, eps: float = 1e-5):
+    def __init__(self, normed_shape: tuple[int], eps: float = 1e-5):
         # TODO: pytorch lets this learn an affine transform
         self.eps = eps
+        self.b = GpuTensor(cp.zeros(normed_shape, dtype=cp.float32))
+        self.w = GpuTensor(cp.ones(normed_shape, dtype=cp.float32))
         self.params = []
 
     def forward(self, input: GpuTensor) -> GpuTensor:
         # So, for this to work, we need:
         normed, grad_terms = kernels.layernorm(input.value, eps=self.eps)
 
+        # TODO: could pull b and w into the kernel
+
         def local_grad(acc: cp.ndarray) -> cp.ndarray:
             return kernels.layernorm_back(acc, grad_terms[0], grad_terms[1])
 
         ops = [(input, "layernorm", local_grad)]
-        return GpuTensor(normed, ops)
+        result = GpuTensor(normed, ops)
+        return result * self.w + self.b
 
 
 class Embedding:
@@ -203,46 +216,53 @@ class SelfAttention:
             num[..., i, :] = (phi_q[..., i, None, :] @ s).squeeze(-2)
 
         # so we have the actual values, but we still need the gradients
-        # This gets messy - we're going to want to fuse these together
-        # in a kernel, but that will require some sort of closure to cache the
-        # the results after our first invocation. #FIXME for now i'm just sticking
-        # to python code that duplicates work
-        def local_grad_q(acc: cp.ndarray) -> cp.ndarray:
+        # There's some repeated work done by this backward pass funcs, so
+        # use a closure to capture that
+        grad_q = None
+        grad_v = None
+        grad_k = None
+
+        def build_local_grads(acc: cp.ndarray) -> cp.ndarray:
+            nonlocal grad_q
+            nonlocal grad_v
+            nonlocal grad_k
             s = cp.zeros(
                 (phi_k.shape[0], phi_k.shape[1], self.key_size, self.key_size),
                 dtype=cp.float32,
             )
-            grad = cp.zeros_like(phi_q)
+            grad_q = cp.zeros_like(phi_q)
             for i in range(phi_k.shape[-2]):
                 s = s + phi_k[..., i, :, None] @ v[..., i, None, :]
-                grad[..., i, :] = (acc[..., i, None, :] @ s.swapaxes(-1, -2)).squeeze(
+                grad_q[..., i, :] = (acc[..., i, None, :] @ s.swapaxes(-1, -2)).squeeze(
                     -2
                 )
-            return grad
+            s *= 0
+            grad_v = cp.zeros_like(phi_k)
+            grad_k = cp.zeros_like(phi_k)
+            for i in range(phi_q.shape[-2] - 1, -1, -1):
+                s = s + phi_q[..., i, :, None] @ acc[..., i, None, :]
+                grad_v[..., i, :] = (
+                    s.swapaxes(-1, -2) @ phi_k[..., i, :, None]
+                ).squeeze(-1)
+                grad_k[..., i, :] = (s @ v[..., i, :, None]).squeeze(-1)
+
+        def local_grad_q(acc: cp.ndarray) -> cp.ndarray:
+            nonlocal grad_q
+            if grad_q is None:
+                build_local_grads(acc)
+            return grad_q
 
         def local_grad_v(acc: cp.ndarray) -> cp.ndarray:
-            s = cp.zeros(
-                (phi_k.shape[0], phi_k.shape[1], self.key_size, self.key_size),
-                dtype=cp.float32,
-            )
-            grad = cp.zeros_like(phi_k)
-            for i in range(phi_q.shape[-2] - 1, -1, -1):
-                s = s + phi_q[..., i, :, None] @ acc[..., i, None, :]
-                grad[..., i, :] = (s.swapaxes(-1, -2) @ phi_k[..., i, :, None]).squeeze(
-                    -1
-                )
-            return grad
+            nonlocal grad_v
+            if grad_v is None:
+                build_local_grads(acc)
+            return grad_v
 
         def local_grad_k(acc: cp.ndarray) -> cp.ndarray:
-            s = cp.zeros(
-                (phi_k.shape[0], phi_k.shape[1], self.key_size, self.key_size),
-                dtype=cp.float32,
-            )
-            grad = cp.zeros_like(phi_k)
-            for i in range(phi_q.shape[-2] - 1, -1, -1):
-                s = s + phi_q[..., i, :, None] @ acc[..., i, None, :]
-                grad[..., i, :] = (s @ v[..., i, :, None]).squeeze(-1)
-            return grad
+            nonlocal grad_k
+            if grad_k is None:
+                build_local_grads(acc)
+            return grad_k
 
         ops = [
             (phi_q_tensor, "attention_numerator_q", local_grad_q),
@@ -251,6 +271,21 @@ class SelfAttention:
         ]
 
         return GpuTensor(num, ops)
+
+
+class TransformerLayer:
+    def __init__(self, embedding_size, n_heads=1):
+        self.attention = SelfAttention(embedding_size, n_heads)
+        self.attention_norm = LayerNorm((embedding_size,))
+        self.linear = Linear(embedding_size, embedding_size, True)
+        self.linear_activation = Elu()
+        self.linear_norm = LayerNorm((embedding_size,))
+
+    def forward(self, tensor: GpuTensor) -> GpuTensor:
+        attended = self.attention.forward(tensor)
+        interim = self.attention_norm.forward(attended + tensor)
+        processed = self.linear_activation.forward(self.linear.forward(interim))
+        return self.linear_norm.forward(processed + interim)
 
 
 # FIXME: not really a layer. Need to fix my organization
