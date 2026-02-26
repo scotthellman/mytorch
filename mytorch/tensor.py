@@ -20,7 +20,6 @@ class Tensor:
             self.operations = operations
 
     def compute_gradient(self) -> dict["Tensor", cp.ndarray]:
-        # FIXME: literally the same code as in tensor.py, so get rid of the duplication
         gradients = {}
 
         stack: list[tuple[Tensor, cp.ndarray]] = [
@@ -265,10 +264,10 @@ class Tensor:
     def transpose(self, i: int, j: int) -> Tensor:
         # NOTE: I give myself permission to not do this myself,
         # I've been leaving indexing stuff to cupy
-        result = self.value.swapaxes(i, j)
+        result = self.value.swapaxes(i, j).copy()
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
-            return acc.swapaxes(i, j)
+            return acc.swapaxes(i, j).copy()
 
         operations = [(self, "T", local_grad_self)]
 
@@ -277,10 +276,10 @@ class Tensor:
     def permute(self, indices) -> Tensor:
         # NOTE: I give myself permission to not do this myself,
         # I've been leaving indexing stuff to cupy
-        result = self.value[..., indices]
+        result = self.value[..., indices].copy()
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
-            return acc[..., indices]
+            return acc[..., indices].copy()
 
         operations = [(self, "swapaxes", local_grad_self)]
 
