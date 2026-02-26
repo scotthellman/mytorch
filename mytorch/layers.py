@@ -71,7 +71,7 @@ class LayerNorm:
 class Embedding:
     def __init__(self, vocab_size: int, embedding_size: int):
         weight_data = cp.random.normal(
-            0, 0.2, (vocab_size, embedding_size), dtype=cp.float32
+            0, 0.02, (vocab_size, embedding_size), dtype=cp.float32
         )
         self.weights = Tensor(weight_data, frozen=False)
         self.params = [self.weights]
@@ -114,6 +114,12 @@ class SelfAttention:
             0, 0.1, (embedding_size, embedding_size * 3), dtype=cp.float32
         )
         self.weights = Tensor(weight_data, frozen=False)
+        self.out_weights = Tensor(
+            cp.random.normal(
+                0, 0.1, (embedding_size, embedding_size), dtype=cp.float32
+            ),
+            frozen=False,
+        )
         # q_data = cp.random.normal(0, 0.5, (embedding_size, key_size), dtype=cp.float32)
         # self.Q = GpuTensor(q_data, frozen=False)
         # k_data = cp.random.normal(0, 0.5, (embedding_size, key_size), dtype=cp.float32)
@@ -183,7 +189,7 @@ class SelfAttention:
             (input.value.shape[0], input.value.shape[1], self.key_size * self.n_heads)
         )
 
-        return result
+        return result @ self.out_weights
 
     def rotate(self, tensor: Tensor):
         # NOTE: this assumes an even number of dimensions
