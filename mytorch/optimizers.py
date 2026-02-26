@@ -21,7 +21,7 @@ class Adam:
         self.lr = lr
         self.means = {}
         self.vars = {}
-        self.b1 = 0.99
+        self.b1 = 0.9
         self.b2 = 0.999
         self.t = 0
         self.eps = eps

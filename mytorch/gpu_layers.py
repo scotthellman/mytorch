@@ -1,4 +1,5 @@
 import cupy as cp
+import cupyx
 
 from mytorch import kernels
 from mytorch.gpu_tensor import GpuTensor
@@ -48,11 +49,10 @@ class Elu:
 
 class LayerNorm:
     def __init__(self, normed_shape: tuple[int], eps: float = 1e-5):
-        # TODO: pytorch lets this learn an affine transform
         self.eps = eps
-        self.b = GpuTensor(cp.zeros(normed_shape, dtype=cp.float32))
-        self.w = GpuTensor(cp.ones(normed_shape, dtype=cp.float32))
-        self.params = []
+        self.b = GpuTensor(cp.zeros(normed_shape, dtype=cp.float32), frozen=False)
+        self.w = GpuTensor(cp.ones(normed_shape, dtype=cp.float32), frozen=False)
+        self.params = [self.b, self.w]
 
     def forward(self, input: GpuTensor) -> GpuTensor:
         # So, for this to work, we need:
@@ -85,7 +85,7 @@ class Embedding:
             # so we need to expand acc out, 0ing any rows that weren't selected
             # TODO: shame we have to make this big matrix. Something to think about
             out = cp.zeros_like(self.weights.value)
-            out[input.value] = acc
+            cupyx.scatter_add(out, input.value, acc)
             return out
 
         return GpuTensor(

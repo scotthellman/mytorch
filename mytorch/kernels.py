@@ -332,10 +332,10 @@ void layernorm_kernel(const float* a, float* out, float* inv_vars, float* norms,
         for (int j = 0; j < emb_size; j++) {
             float norm = a[i*emb_size+j] - mean;
             out[i*emb_size+j] = (norm) / sqrt(var + eps);
-            norms[i*emb_size+j] = norm;
+            norms[i*emb_size+j] = norm / sqrt(var+ eps);
         }
 
-        inv_vars[i] = 1.0/var;
+        inv_vars[i] = 1.0/sqrt(var + eps);
     }
 }
 """
@@ -367,7 +367,7 @@ void layernorm_back_kernel(const float* a, const float* inv_vars, const float* n
         // and now, for every value: grad - grad_mean - norm*mult_mean
         // all that is then * inv var
         for (int j = 0; j < emb_size; j++) {
-            float result = sqrt(inv_vars[i]) * (a[i*emb_size+j] - grad_mean - norms[i*emb_size+j]*mult_mean) * inv_vars[i];
+            float result = inv_vars[i] * (a[i*emb_size+j] - grad_mean - norms[i*emb_size+j]*mult_mean);
             out[i*emb_size+j] = result;
         }
     }
@@ -394,7 +394,7 @@ void rope_kernel(const float* a, float* out, int emb_size, int seq_size, int bat
         float theta = theta_sign * pow(10000.0, -2.0*float(x/2)/float(emb_size));
 
         int true_index = z*seq_size*emb_size + y*emb_size + x;
-        int sin_index = true_index + (1 - 2*(true_index/2));
+        int sin_index = true_index + (1 - 2*(true_index%2));
 
         float cos_val = a[true_index] * cos((y+1.0) * theta);
         float sin_val = a[sin_index] * sin((y+1.0) * theta);
