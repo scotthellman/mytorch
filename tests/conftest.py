@@ -1,12 +1,12 @@
 import cupy as cp
 import pytest
 
-from mytorch.gpu_tensor import GpuTensor
+from mytorch.tensor import Tensor
 
 
 @pytest.fixture
 def two_d_tensor():
-    return GpuTensor(
+    return Tensor(
         cp.array(
             [
                 [1, 0.1, -1],
@@ -20,7 +20,7 @@ def two_d_tensor():
 
 @pytest.fixture
 def one_d_tensor():
-    return GpuTensor(
+    return Tensor(
         cp.array(
             [
                 [1, 0.1, -1],

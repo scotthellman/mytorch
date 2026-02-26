@@ -1,21 +1,21 @@
 import cupy as cp
 from utils import evaluate_empirical_grad
 
-from mytorch import gpu_layers
-from mytorch.gpu_tensor import GpuTensor
+from mytorch import layers
+from mytorch.tensor import Tensor
 
 
 def test_linear():
-    layer = gpu_layers.Linear(3, 2, False)
-    vec = GpuTensor(cp.array([[1, 2, 3, 4, 5, 6]], dtype=cp.float32).reshape(2, 1, 3))
+    layer = layers.Linear(3, 2, False)
+    vec = Tensor(cp.array([[1, 2, 3, 4, 5, 6]], dtype=cp.float32).reshape(2, 1, 3))
 
     expected = vec.value @ layer.weights.value
     actual = layer.forward(vec)
 
     assert cp.allclose(expected, actual.value)
 
-    layer = gpu_layers.Linear(3, 2, True)
-    layer.bias = GpuTensor(cp.array([[1.0] * 2], dtype=cp.float32))
+    layer = layers.Linear(3, 2, True)
+    layer.bias = Tensor(cp.array([[1.0] * 2], dtype=cp.float32))
 
     expected = vec.value @ layer.weights.value + layer.bias.value
     actual = layer.forward(vec)
@@ -24,8 +24,8 @@ def test_linear():
 
 
 def test_sigmoid():
-    layer = gpu_layers.Sigmoid()
-    vec = GpuTensor(cp.array([[0, 1, 2, 3, 4, 5]], dtype=cp.float32).reshape(2, 1, 3))
+    layer = layers.Sigmoid()
+    vec = Tensor(cp.array([[0, 1, 2, 3, 4, 5]], dtype=cp.float32).reshape(2, 1, 3))
 
     expected = 1 / (1 + cp.exp(-vec.value))
     actual = layer.forward(vec)
@@ -40,8 +40,8 @@ def test_sigmoid():
 
 
 def test_layer_norm():
-    layer = gpu_layers.LayerNorm(eps=0)
-    tensor = GpuTensor(cp.array([[2, 1, 0], [1, 1, 0]], dtype=cp.float32))
+    layer = layers.LayerNorm(eps=0)
+    tensor = Tensor(cp.array([[2, 1, 0], [1, 1, 0]], dtype=cp.float32))
 
     expected = cp.array(
         [[1.2247448, 0.0, -1.2247448], [0.7071067, 0.7071067, -1.4142135]],
@@ -54,10 +54,8 @@ def test_layer_norm():
 
 
 def test_self_attention_grad():
-    layer = gpu_layers.SelfAttention(4, 1)
-    tensor = GpuTensor(
-        cp.array([0.2, 0.4, 0.1, 0.0], dtype=cp.float32).reshape((1, 1, 4))
-    )
+    layer = layers.SelfAttention(4, 1)
+    tensor = Tensor(cp.array([0.2, 0.4, 0.1, 0.0], dtype=cp.float32).reshape((1, 1, 4)))
     layer.forward(tensor)
 
     def loss_func(x):
@@ -68,7 +66,7 @@ def test_self_attention_grad():
 
 
 def test_linear_grad(two_d_tensor):
-    layer = gpu_layers.Linear(two_d_tensor.value.shape[-1], 1, False)
+    layer = layers.Linear(two_d_tensor.value.shape[-1], 1, False)
 
     def loss_func(x):
         result = layer.forward(two_d_tensor).sum()
@@ -78,7 +76,7 @@ def test_linear_grad(two_d_tensor):
 
 
 def test_sigmoid_grad(two_d_tensor):
-    layer = gpu_layers.Sigmoid()
+    layer = layers.Sigmoid()
 
     def loss_func(x):
         result = layer.forward(two_d_tensor).sum()
@@ -88,7 +86,7 @@ def test_sigmoid_grad(two_d_tensor):
 
 
 def test_layer_norm_grad(two_d_tensor):
-    layer = gpu_layers.LayerNorm(eps=0)
+    layer = layers.LayerNorm(eps=0)
 
     def loss_func(x):
         result = layer.forward(two_d_tensor).sum()

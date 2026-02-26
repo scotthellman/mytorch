@@ -1,9 +1,9 @@
 import cupy as cp
 
-from mytorch.gpu_tensor import GpuTensor
+from mytorch.tensor import Tensor
 
 
-def sgd_step(loss: GpuTensor, step_size: float):
+def sgd_step(loss: Tensor, step_size: float):
     gradients = loss.compute_gradient()
     for t, grad in gradients.items():
         if t.frozen:
@@ -27,16 +27,16 @@ class Adam:
         self.eps = eps
         # FIXME: actually implement decay
 
-    def step(self, loss: GpuTensor):
+    def step(self, loss: Tensor):
         self.t += 1
         gradients = loss.compute_gradient()
         for t, grad in gradients.items():
             if t.frozen:
                 continue
 
-            last_m = self.means.get(t, GpuTensor(cp.zeros_like(grad)))
-            last_v = self.vars.get(t, GpuTensor(cp.zeros_like(grad)))
-            grad = GpuTensor(grad)
+            last_m = self.means.get(t, Tensor(cp.zeros_like(grad)))
+            last_v = self.vars.get(t, Tensor(cp.zeros_like(grad)))
+            grad = Tensor(grad)
 
             m = last_m.mult_constant(self.b1) + grad.mult_constant(1 - self.b1)
 

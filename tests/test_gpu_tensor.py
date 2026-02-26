@@ -1,7 +1,7 @@
 import cupy as cp
 from utils import evaluate_empirical_grad
 
-from mytorch.gpu_tensor import GpuTensor
+from mytorch.tensor import Tensor
 
 ONE = cp.array([1.0], dtype=cp.float32)
 
@@ -14,8 +14,8 @@ def build_gradient_lookup(ops):
 
 
 def test_add():
-    a = GpuTensor(cp.arange(8, dtype=cp.float32).reshape(2, 2, 2))
-    b = GpuTensor(cp.array([3, 3], dtype=cp.float32).reshape(2, 1, 1))
+    a = Tensor(cp.arange(8, dtype=cp.float32).reshape(2, 2, 2))
+    b = Tensor(cp.array([3, 3], dtype=cp.float32).reshape(2, 1, 1))
     expected = a.value + b.value
     result = a + b
     assert cp.all(expected == result.value)
@@ -38,7 +38,7 @@ def test_add():
 
 
 def test_negation():
-    a = GpuTensor(cp.array([1.0, 2.0, 3.0], dtype=cp.float32))
+    a = Tensor(cp.array([1.0, 2.0, 3.0], dtype=cp.float32))
     expected = -(a.value)
     result = -a
     assert cp.all(expected == result.value)
@@ -52,8 +52,8 @@ def test_negation():
 
 
 def test_subtraction():
-    a = GpuTensor(cp.array([1.0, 2.0, 3.0], dtype=cp.float32))
-    b = GpuTensor(cp.array([3.0], dtype=cp.float32))
+    a = Tensor(cp.array([1.0, 2.0, 3.0], dtype=cp.float32))
+    b = Tensor(cp.array([3.0], dtype=cp.float32))
     expected = a.value - b.value
     result = a - b
     assert cp.all(expected == result.value)
@@ -72,8 +72,8 @@ def test_subtraction():
 
 
 def test_multiplication():
-    a = GpuTensor(cp.array([1.0, 2.0, 3.0], dtype=cp.float32))
-    b = GpuTensor(cp.array([3.0], dtype=cp.float32))
+    a = Tensor(cp.array([1.0, 2.0, 3.0], dtype=cp.float32))
+    b = Tensor(cp.array([3.0], dtype=cp.float32))
     expected = a.value * b.value
     result = a * b
     assert cp.all(expected == result.value)
@@ -92,8 +92,8 @@ def test_multiplication():
 
 
 def test_division():
-    a = GpuTensor(cp.array([1.0, 2.0, 3.0], dtype=cp.float32))
-    b = GpuTensor(cp.array([3.0], dtype=cp.float32))
+    a = Tensor(cp.array([1.0, 2.0, 3.0], dtype=cp.float32))
+    b = Tensor(cp.array([3.0], dtype=cp.float32))
     expected = a.value / b.value
     result = a / b
     assert cp.all(expected == result.value)
@@ -112,8 +112,8 @@ def test_division():
 
 
 def test_matmul():
-    a = GpuTensor(cp.array([[1.0, 2.0, 3.0]], dtype=cp.float32))
-    b = GpuTensor(cp.array([[3.0, 2.0, 1.0]], dtype=cp.float32).T)
+    a = Tensor(cp.array([[1.0, 2.0, 3.0]], dtype=cp.float32))
+    b = Tensor(cp.array([[3.0, 2.0, 1.0]], dtype=cp.float32).T)
     expected = a.value @ b.value
     result = a @ b
     assert cp.all(expected == result.value)
@@ -134,8 +134,8 @@ def test_matmul():
 
 
 def test_batch_matmul():
-    a = GpuTensor(cp.arange(12, dtype=cp.float32).reshape(2, 2, 3))
-    b = GpuTensor(cp.arange(12, dtype=cp.float32).reshape(2, 3, 2))
+    a = Tensor(cp.arange(12, dtype=cp.float32).reshape(2, 2, 3))
+    b = Tensor(cp.arange(12, dtype=cp.float32).reshape(2, 3, 2))
     expected = a.value @ b.value
     result = a @ b
     assert cp.all(expected == result.value)
@@ -156,7 +156,7 @@ def test_batch_matmul():
 
 
 def test_add_grad(two_d_tensor):
-    right = GpuTensor(cp.copy(two_d_tensor.value + 5))
+    right = Tensor(cp.copy(two_d_tensor.value + 5))
 
     def left_loss_func(x):
         return (x + right).sum()
@@ -169,7 +169,7 @@ def test_add_grad(two_d_tensor):
 
 
 def test_sub_grad(two_d_tensor):
-    right = GpuTensor(cp.copy(two_d_tensor.value + 5))
+    right = Tensor(cp.copy(two_d_tensor.value + 5))
 
     def left_loss_func(x):
         return (x - right).sum()
@@ -182,7 +182,7 @@ def test_sub_grad(two_d_tensor):
 
 
 def test_mult_grad(two_d_tensor):
-    right = GpuTensor(cp.copy(two_d_tensor.value + 2))
+    right = Tensor(cp.copy(two_d_tensor.value + 2))
 
     def left_loss_func(x):
         return (x * right).sum()
@@ -195,7 +195,7 @@ def test_mult_grad(two_d_tensor):
 
 
 def test_matmul_grad(two_d_tensor):
-    right = GpuTensor(cp.copy(two_d_tensor.value + 1))
+    right = Tensor(cp.copy(two_d_tensor.value + 1))
 
     def left_loss_func(x):
         return (x @ right).sum()
@@ -208,8 +208,8 @@ def test_matmul_grad(two_d_tensor):
 
 
 def test_div_grad():
-    numerator = GpuTensor(cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 3)))
-    denominator = GpuTensor(cp.array([0.1, 0.2, 0.3], dtype=cp.float32).reshape((1, 3)))
+    numerator = Tensor(cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 3)))
+    denominator = Tensor(cp.array([0.1, 0.2, 0.3], dtype=cp.float32).reshape((1, 3)))
 
     def num_loss_func(x):
         return (x / denominator).sum()
