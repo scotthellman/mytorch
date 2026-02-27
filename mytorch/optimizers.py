@@ -34,26 +34,31 @@ class Adam:
         self.eps = eps
         self.clip = clip
         self.warmup_steps = warmup_steps
-        self.steps = 0
 
     def step(self):
         self.t += 1
         normalizer = None
         lr_adjustment = 1
-        if self.steps < self.warmup_steps:
-            lr_adjustment = (self.steps + 1) / (self.warmup_steps + 1)
+        if self.t < self.warmup_steps:
+            lr_adjustment = (self.t + 1) / (self.warmup_steps + 1)
         if self.clip:
+            seen = set()
             squared_sum = 0
             for tensors, _, __ in self.tensors:
                 for tensor in tensors:
-                    squared_sum += (tensor.grad**2).sum()
+                    if tensor not in seen:
+                        squared_sum += (tensor.grad**2).sum()
+                        seen.add(tensor)
             rss = np.sqrt(squared_sum)
             if rss > self.clip:
                 normalizer = self.clip / rss
+            squared_sum = 0
+        seen = set()
         for tensors, lr, decay in self.tensors:
             for t in tensors:
-                if t.frozen:
+                if t.frozen or t in seen:
                     continue
+                seen.add(t)
 
                 last_m = self.means.get(t, Tensor(cp.zeros_like(t.grad)))
                 last_v = self.vars.get(t, Tensor(cp.zeros_like(t.grad)))

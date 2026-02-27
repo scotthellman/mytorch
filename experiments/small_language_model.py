@@ -13,24 +13,26 @@ with open("/home/scott/Downloads/alice_in_wonderland.txt", "r") as f:
 
 text = text.encode("utf-8")
 
-vocab_size = 2048
+vocab_size = 4096
 embedding_size = 256
-lr = 3e-4
+lr = 2e-4
 seq_length = 64
-batch_size = 16
+batch_size = 32
 epochs = 1000
 
 loss_func = layers.CrossEntropyLoss()
 network = [
     layers.Embedding(vocab_size, embedding_size),
     layers.TransformerLayer(embedding_size, 8),
-    # layers.TransformerLayer(embedding_size, 8),
+    layers.TransformerLayer(embedding_size, 8),
     # layers.TransformerLayer(embedding_size, 8),
     layers.Linear(embedding_size, vocab_size, True),
 ]
 
-optimizer = optimizers.Adam(lr=lr)
+
 network[-1].weights = network[0].weights.transpose_last()
+params = [p for layer in network for p in layer.params]
+optimizer = optimizers.Adam([(params, lr, 0.01)], warmup_steps=500)
 
 if False:
     tokenizer = NaiveBPE(vocab_size)
@@ -63,7 +65,8 @@ for e in range(epochs):
 
         loss = loss_func.forward(processed, y_batch)
         losses.append(float(loss.value))
-        optimizer.step(loss)
+        loss.compute_gradient()
+        optimizer.step()
     mean_loss = np.mean(losses)
     print(f"mean train loss for epoch {e} was {mean_loss}")
     if mean_loss < best_loss:
@@ -78,5 +81,5 @@ for e in range(epochs):
     for j, layer in enumerate(network):
         processed = layer.forward(processed)
     pred = cp.argmax(processed.value, axis=-1)[0]
-    print(processed.value.max())
+    # print(processed.value.max())
     print(tokenizer.untokenize(pred.tolist()))

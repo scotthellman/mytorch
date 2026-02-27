@@ -1,27 +1,27 @@
 import cupy as cp
 import numpy as np
 
-from mytorch import gpu_layers, optimizers
-from mytorch.gpu_tensor import GpuTensor
+from mytorch import layers, optimizers
+from mytorch.tensor import Tensor
 
-lr = 0.002
-batchsize = 8
+lr = 0.003
+batchsize = 16
 hiddensize = 32
 vocabsize = 4
-epochs = 30
+epochs = 100
 n_samples = 200
-seq_length = 2
+seq_length = 4
 network = [
-    gpu_layers.Embedding(vocabsize, hiddensize),
-    gpu_layers.SelfAttention(hiddensize, 2),
-    gpu_layers.Linear(hiddensize, hiddensize, True),
-    gpu_layers.Sigmoid(),
-    gpu_layers.LayerNorm(),
-    gpu_layers.Linear(hiddensize, vocabsize, True),
+    layers.Embedding(vocabsize, hiddensize),
+    layers.TransformerLayer(hiddensize, 2),
+    # layers.TransformerLayer(hiddensize, 1),
+    layers.Linear(hiddensize, vocabsize, True),
 ]
-optimizer = optimizers.Adam(lr=lr)
+params = [p for layer in network for p in layer.params]
+optimizer = optimizers.Adam([(params, lr, 0.01)])
+network[-1].weights = network[0].weights.transpose_last()
 
-loss_func = gpu_layers.CrossEntropyLoss()
+loss_func = layers.CrossEntropyLoss()
 
 # tie the in and out embeddings together
 # FIXME: make sure this works - T is just a view right?
@@ -44,8 +44,8 @@ y = cp.vstack(y, dtype=cp.int32)
 for e in range(epochs):
     losses = []
     for i in range(0, X.shape[0], batchsize):
-        X_batch = GpuTensor(X[i : i + batchsize])
-        y_batch = GpuTensor(y[i : i + batchsize])
+        X_batch = Tensor(X[i : i + batchsize])
+        y_batch = Tensor(y[i : i + batchsize])
 
         processed = X_batch
         for j, layer in enumerate(network):
@@ -57,7 +57,8 @@ for e in range(epochs):
             1 / 0
         loss = loss_func.forward(processed, y_batch)
         losses.append(float(loss.value))
-        optimizer.step(loss)
+        loss.compute_gradient()
+        optimizer.step()
     print(f"mean train loss for epoch {e} was {np.mean(losses)}")
 print(cp.argmax(processed.value, axis=-1))
 print(y_batch.value)
