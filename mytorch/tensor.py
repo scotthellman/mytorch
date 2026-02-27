@@ -18,6 +18,10 @@ class Tensor:
             self.operations = []
         else:
             self.operations = operations
+        self.reset()
+
+    def reset(self):
+        self.grad = cp.zeros_like(self.value)
 
     def compute_gradient(self) -> dict["Tensor", cp.ndarray]:
         gradients = {}
@@ -28,9 +32,9 @@ class Tensor:
         while stack:
             current_variable, current_value = stack.pop()
             for child, name, op in current_variable.operations:
-                child_grad = gradients.get(child, 0)
+                child_grad = child.grad
                 child_value = op(current_value)
-                gradients[child] = child_grad + child_value
+                child.grad = child_value + child_grad
                 stack.append((child, child_value))
 
         return gradients

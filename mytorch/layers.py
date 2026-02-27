@@ -129,7 +129,7 @@ class SelfAttention:
         self.embedding_size = embedding_size
         self.n_heads = n_heads
         self.key_size = embedding_size // n_heads
-        self.params = [self.weights]
+        self.params = [self.weights, self.out_weights]
 
     def forward(self, input: Tensor):
         # TODO: this can have some special caching behavior at inference time (3.3.2 of the paper)
@@ -284,6 +284,12 @@ class TransformerLayer:
         self.linear = Linear(embedding_size, embedding_size, True)
         self.linear_activation = Elu()
         self.linear_norm = LayerNorm((embedding_size,))
+
+        self.params = []
+        self.params.extend(self.attention.params)
+        self.params.extend(self.attention_norm.params)
+        self.params.extend(self.linear.params)
+        self.params.extend(self.linear_norm.params)
 
     def forward(self, tensor: Tensor) -> Tensor:
         attended = self.attention.forward(tensor)
