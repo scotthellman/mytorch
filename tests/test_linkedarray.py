@@ -13,5 +13,7 @@ def test_linked_array():
     arr.merge(0)
 
     assert arr[0].value == test[:2]
+    assert arr[0].next_node.index == 2
     assert arr[1] is None
     assert arr[2].value == test[2:]
+    assert arr[2].prev_node.index == 0

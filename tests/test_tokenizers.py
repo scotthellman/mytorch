@@ -1,4 +1,4 @@
-from mytorch.tokenizers import NaiveBPE
+from mytorch.tokenizers import BPE, NaiveBPE
 
 
 def test_naive_tokenizer():
@@ -26,3 +26,11 @@ def test_naive_tokenizer():
 
     for t in texts:
         assert t == tokenizer.untokenize(tokenizer.tokenize(t))
+
+
+def test_bpe():
+    tokenizer = BPE(vocab_size=3)
+
+    text = b"aaaa"
+
+    tokenizer.fit(text)

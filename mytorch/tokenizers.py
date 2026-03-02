@@ -1,5 +1,7 @@
 from collections import Counter
 
+from mytorch.linkedarray import LinkedArray
+from mytorch.pairdata import TokenData, TokenHeap
 from mytorch.trie import Trie
 
 
@@ -74,3 +76,85 @@ class NaiveBPE:
         if self.index_lookup is None:
             raise ValueError("Tokenizer must be fit to text before use")
         return b"".join(self.index_lookup[t] for t in toks)
+
+
+class BPE:
+    def __init__(self, vocab_size):
+        self.vocab_size = vocab_size
+        self.vocabulary = None
+        self.trie = None
+        self.array = None
+        self.index_lookup = {}
+        self.heap = TokenHeap()
+
+    def fit(self, text: bytes):
+        self.trie = Trie(0)
+        self.array = LinkedArray(text)
+        token_counts = Counter()
+        # TODO: so we've lost any notion of word chunks
+        initial_counts = {}
+        # First, init our vocab to be all bytes
+        # for i in range(256):
+        #    value = int.to_bytes(i)
+
+        # now, we need to know our starting pair counts
+        seen = set()
+        for i in range(len(text)):
+            pair = text[i : i + 2]
+            if len(pair) != 2:
+                continue
+            for j in range(2):
+                tok = pair[j : j + 1]
+                if tok not in seen:
+                    seen.add(tok)
+                    self.trie.insert(tok, len(self.index_lookup))
+                    self.index_lookup[len(self.index_lookup)] = tok
+                # inverted math due to min heap
+                token_counts[tok] -= 1
+            if pair not in initial_counts:
+                initial_counts[pair] = TokenData(token=pair, count=0, locs=[])
+            data = initial_counts[pair]
+            data.count += 1
+            data.locs.append(i)
+        # Now we can build our heap
+        for data in initial_counts.values():
+            # we have a min heap
+            data.count = -data.count
+            self.heap.insert_token(data)
+            self.trie.insert(data.token, len(self.index_lookup))
+            self.index_lookup[len(self.index_lookup)] = data.token
+            token_counts[data.token] += data.count
+
+        # We should be set up for the iterative stage now
+        while len(self.index_lookup) < self.vocab_size:
+            # pop from the heap
+            # add to the trie
+            # merge in the array
+            # need to manage global counts so that we can compute the new counts
+            # insert new counts and mark old counts as stale
+            data = self.heap.pop()
+            self.trie.insert(data.token, len(self.index_lookup))
+            self.index_lookup[len(self.index_lookup)] = data.token
+
+            impacted_indices = data.locs
+            new_counts, stale_counts = self.array.merge_all(impacted_indices)
+            stale_pairs = []
+            # The only thing missing is some sort of global counter. We need this because
+            # e.g. let's say we had "a a b c d" and merged to "a a bc d"
+            # from merge_all, we know the counts for abc and bcd
+            # but we _don't_ know what the new count for "a" is
+            # we need to update our counts now
+            for pair, count in stale_counts.items():
+                if len(pair) > 1:
+                    stale_pairs.append(pair)
+                # again, min heap, so our math is inverted
+                token_counts[pair] += count
+                if token_counts[pair] > 0:
+                    print("whoops")
+                assert token_counts[pair] <= 0
+
+            self.heap.mark_as_stale(stale_pairs)
+            for data in new_counts:
+                data.count = -data.count
+                self.heap.insert_token(data)
+                token_counts[data.token] = data.count
