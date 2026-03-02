@@ -91,7 +91,7 @@ class BPE:
         self.trie = Trie(0)
         self.array = LinkedArray(text)
         token_counts = Counter()
-        # TODO: so we've lost any notion of word chunks
+        # FIXME: so we've lost any notion of word chunks
         initial_counts = {}
         # First, init our vocab to be all bytes
         # for i in range(256):
@@ -121,8 +121,6 @@ class BPE:
             # we have a min heap
             data.count = -data.count
             self.heap.insert_token(data)
-            self.trie.insert(data.token, len(self.index_lookup))
-            self.index_lookup[len(self.index_lookup)] = data.token
             token_counts[data.token] += data.count
 
         # We should be set up for the iterative stage now
@@ -133,11 +131,22 @@ class BPE:
             # need to manage global counts so that we can compute the new counts
             # insert new counts and mark old counts as stale
             data = self.heap.pop()
+            if data.token == b"s ":
+                print("we're here")
+            print(data.token)
+            print(data.locs)
+            print("---")
             self.trie.insert(data.token, len(self.index_lookup))
             self.index_lookup[len(self.index_lookup)] = data.token
 
             impacted_indices = data.locs
             new_counts, stale_counts = self.array.merge_all(impacted_indices)
+            if data.token == b"th":
+                print('new"')
+                print(new_counts)
+                print("stale")
+                print(stale_counts)
+                print("-")
             stale_pairs = []
             # The only thing missing is some sort of global counter. We need this because
             # e.g. let's say we had "a a b c d" and merged to "a a bc d"
@@ -158,3 +167,13 @@ class BPE:
                 data.count = -data.count
                 self.heap.insert_token(data)
                 token_counts[data.token] = data.count
+
+    def tokenize(self, text: bytes) -> list[int]:
+        if self.trie is None:
+            raise ValueError("Tokenizer must be fit to text before use")
+        return self.trie.tokenize(text)
+
+    def untokenize(self, toks: list[int]) -> bytes:
+        if self.index_lookup is None:
+            raise ValueError("Tokenizer must be fit to text before use")
+        return b"".join(self.index_lookup[t] for t in toks)

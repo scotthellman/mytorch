@@ -29,8 +29,49 @@ def test_naive_tokenizer():
 
 
 def test_bpe():
+    # broadly it would be nice to test this at vocab_size == len(text)
+    # but the tokenizer fails at that point and fixing it would take nontrivial work
+    # (and exhausting the text will never happen in a realistic scenario)
     tokenizer = BPE(vocab_size=3)
 
     text = b"aaaa"
 
     tokenizer.fit(text)
+
+    result = tokenizer.tokenize(text)
+    print(result)
+    assert len(result) == 2
+
+
+def test_bpe_nontrivial():
+    # broadly it would be nice to test this at vocab_size == len(text)
+    # but the tokenizer fails at that point and fixing it would take nontrivial work
+    # (and exhausting the text will never happen in a realistic scenario)
+    text = b"this is a piece of text, that contains MANY characters, etc."
+    n_unique = len(set(text))
+    tokenizer = BPE(vocab_size=n_unique + 15)
+
+    tokenizer.fit(text)
+
+    result = tokenizer.tokenize(text)
+
+    rebuilt = tokenizer.untokenize(result)
+
+    assert text == rebuilt
+
+
+def test_bpe_known_failure():
+    # broadly it would be nice to test this at vocab_size == len(text)
+    # but the tokenizer fails at that point and fixing it would take nontrivial work
+    # (and exhausting the text will never happen in a realistic scenario)
+    text = b"is is is "
+    n_unique = len(set(text))
+    tokenizer = BPE(vocab_size=4)
+
+    tokenizer.fit(text)
+
+    result = tokenizer.tokenize(text)
+
+    rebuilt = tokenizer.untokenize(result)
+
+    assert text == rebuilt

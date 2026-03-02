@@ -28,7 +28,7 @@ class LinkedArray:
     def __getitem__(self, index: int) -> ArrayNode | None:
         return self.array[index]
 
-    def merge(self, left_index: int) -> ArrayNode | None:
+    def merge(self, left_index: int) -> tuple[ArrayNode, ArrayNode] | None:
         left_node = self[left_index]
         if left_node is None:
             return None
@@ -44,7 +44,7 @@ class LinkedArray:
         new_right_node = right_node.next_node
         if new_right_node is not None:
             new_right_node.prev_node = left_node
-        return left_node
+        return left_node, right_node
 
     def merge_all(self, indices: list[int]) -> tuple[list[TokenData], Counter[bytes]]:
         new_pair_counts = {}
@@ -54,26 +54,32 @@ class LinkedArray:
             if i < frontier_index:
                 # this token got merged
                 continue
-            new_node = self.merge(i)
-            if new_node is None:
+            old_node_value = self[i].value
+            merge_result = self.merge(i)
+            if merge_result is None:
                 raise IndexError("Bad index passed to merge_all", i)
+            new_node, abandoned_node = merge_result
+            stale_counts[abandoned_node.value] += 1
             # both left and right were impacted
             if new_node.prev_node is not None:
-                stale_counts[new_node.prev_node.value] += 1
+                if new_node.prev_node.index > frontier_index:
+                    # if we aren't ahead of the frontier, we've already accounted for this
+                    # when building the last next_node's pair
+                    stale_counts[new_node.prev_node.value + old_node_value] += 1
                 new_pair = new_node.prev_node.value + new_node.value
                 if new_pair not in new_pair_counts:
                     new_pair_counts[new_pair] = TokenData(new_pair, 0, [])
                 data = new_pair_counts[new_pair]
                 data.count += 1
-                data.locs.append(i - 1)
+                data.locs.append(new_node.prev_node.index)
             if new_node.next_node is not None:
-                stale_counts[new_node.next_node.value] += 1
-                new_pair = new_node.next_node.value + new_node.value
+                stale_counts[abandoned_node.value + new_node.next_node.value] += 1
+                new_pair = new_node.value + new_node.next_node.value
                 if new_pair not in new_pair_counts:
                     new_pair_counts[new_pair] = TokenData(new_pair, 0, [])
                 data = new_pair_counts[new_pair]
                 data.count += 1
-                data.locs.append(i - 1)
+                data.locs.append(new_node.index)
                 frontier_index = new_node.next_node.index
         return list(new_pair_counts.values()), stale_counts
 
