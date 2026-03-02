@@ -49,7 +49,7 @@ class LinkedArray:
     def merge_all(self, indices: list[int]) -> tuple[list[TokenData], Counter[bytes]]:
         new_pair_counts = {}
         stale_counts = Counter()
-        frontier_index = 0
+        frontier_index = -1
         for i in indices:
             if i < frontier_index:
                 # this token got merged
@@ -62,7 +62,7 @@ class LinkedArray:
             stale_counts[abandoned_node.value] += 1
             # both left and right were impacted
             if new_node.prev_node is not None:
-                if new_node.prev_node.index > frontier_index:
+                if new_node.prev_node.index >= frontier_index:
                     # if we aren't ahead of the frontier, we've already accounted for this
                     # when building the last next_node's pair
                     stale_counts[new_node.prev_node.value + old_node_value] += 1
@@ -72,6 +72,7 @@ class LinkedArray:
                 data = new_pair_counts[new_pair]
                 data.count += 1
                 data.locs.append(new_node.prev_node.index)
+                assert self.array[data.locs[-1]] is not None
             if new_node.next_node is not None:
                 stale_counts[abandoned_node.value + new_node.next_node.value] += 1
                 new_pair = new_node.value + new_node.next_node.value
@@ -80,6 +81,7 @@ class LinkedArray:
                 data = new_pair_counts[new_pair]
                 data.count += 1
                 data.locs.append(new_node.index)
+                assert self.array[data.locs[-1]] is not None
                 frontier_index = new_node.next_node.index
         return list(new_pair_counts.values()), stale_counts
 

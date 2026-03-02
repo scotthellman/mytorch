@@ -75,3 +75,37 @@ def test_bpe_known_failure():
     rebuilt = tokenizer.untokenize(result)
 
     assert text == rebuilt
+
+
+def test_bpe_repetitive():
+    # broadly it would be nice to test this at vocab_size == len(text)
+    # but the tokenizer fails at that point and fixing it would take nontrivial work
+    # (and exhausting the text will never happen in a realistic scenario)
+    text = b"aabbaabbaabbababababaabbaaa" * 2
+    n_unique = len(set(text))
+    tokenizer = BPE(vocab_size=n_unique + 20)
+
+    tokenizer.fit(text)
+
+    result = tokenizer.tokenize(text)
+
+    rebuilt = tokenizer.untokenize(result)
+
+    assert text == rebuilt
+
+
+def test_bpe_competing_matches():
+    # broadly it would be nice to test this at vocab_size == len(text)
+    # but the tokenizer fails at that point and fixing it would take nontrivial work
+    # (and exhausting the text will never happen in a realistic scenario)
+    text = b"thethe"
+    n_unique = len(set(text))
+    tokenizer = BPE(vocab_size=n_unique + 3)
+
+    tokenizer.fit(text)
+
+    result = tokenizer.tokenize(text)
+
+    rebuilt = tokenizer.untokenize(result)
+
+    assert text == rebuilt

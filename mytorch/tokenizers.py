@@ -131,22 +131,14 @@ class BPE:
             # need to manage global counts so that we can compute the new counts
             # insert new counts and mark old counts as stale
             data = self.heap.pop()
-            if data.token == b"s ":
-                print("we're here")
             print(data.token)
             print(data.locs)
-            print("---")
             self.trie.insert(data.token, len(self.index_lookup))
             self.index_lookup[len(self.index_lookup)] = data.token
 
             impacted_indices = data.locs
             new_counts, stale_counts = self.array.merge_all(impacted_indices)
-            if data.token == b"th":
-                print('new"')
-                print(new_counts)
-                print("stale")
-                print(stale_counts)
-                print("-")
+            print(stale_counts)
             stale_pairs = []
             # The only thing missing is some sort of global counter. We need this because
             # e.g. let's say we had "a a b c d" and merged to "a a bc d"
@@ -158,8 +150,6 @@ class BPE:
                     stale_pairs.append(pair)
                 # again, min heap, so our math is inverted
                 token_counts[pair] += count
-                if token_counts[pair] > 0:
-                    print("whoops")
                 assert token_counts[pair] <= 0
 
             self.heap.mark_as_stale(stale_pairs)
