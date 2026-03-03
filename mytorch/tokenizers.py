@@ -131,6 +131,10 @@ class BPE:
             # need to manage global counts so that we can compute the new counts
             # insert new counts and mark old counts as stale
             data = self.heap.pop()
+            print("Currently the vocab is")
+            print(list(self.index_lookup.values()))
+            print(token_counts)
+            print("now looking at")
             print(data.token)
             print(data.locs)
             self.trie.insert(data.token, len(self.index_lookup))

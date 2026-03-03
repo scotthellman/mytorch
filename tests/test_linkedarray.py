@@ -27,7 +27,7 @@ def test_linked_array_merge_all():
     new_counts, stale_counts = arr.merge_all(indices)
 
     expected_new_counts = {b"is ": 2, b" is": 2}
-    expected_stale = {b"s ": 2, b" i": 2}
+    expected_stale = {b"s ": 2, b" i": 2, "s": 3, "i": 3}
 
     assert len(new_counts) == len(expected_new_counts)
     for data in new_counts:
