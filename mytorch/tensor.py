@@ -32,9 +32,8 @@ class Tensor:
         while stack:
             current_variable, current_value = stack.pop()
             for child, name, op in current_variable.operations:
-                child_grad = child.grad
                 child_value = op(current_value)
-                child.grad = child_value + child_grad
+                child.grad += child_value
                 stack.append((child, child_value))
 
         return gradients
@@ -66,15 +65,15 @@ class Tensor:
         self_broadcast_axes = compute_broadcast_axes(self.value.shape, result.shape)
         b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
-        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_self_add(acc: cp.ndarray) -> cp.ndarray:
             return handle_broadcasting(acc, self_broadcast_axes, self.value.shape)
 
-        def local_grad_b(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_b_add(acc: cp.ndarray) -> cp.ndarray:
             return handle_broadcasting(acc, b_broadcast_axes, b.value.shape)
 
         operations = [
-            (self, "add", local_grad_self),  # conceptually, 1*acc
-            (b, "add", local_grad_b),
+            (self, "add", local_grad_self_add),  # conceptually, 1*acc
+            (b, "add", local_grad_b_add),
         ]
         return Tensor(result, operations)
 
@@ -83,15 +82,15 @@ class Tensor:
         self_broadcast_axes = compute_broadcast_axes(self.value.shape, result.shape)
         b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
-        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_self_sub(acc: cp.ndarray) -> cp.ndarray:
             return handle_broadcasting(acc, self_broadcast_axes, self.value.shape)
 
-        def local_grad_b(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_b_sub(acc: cp.ndarray) -> cp.ndarray:
             return handle_broadcasting(
                 kernels.neg(acc), b_broadcast_axes, b.value.shape
             )
 
-        operations = [(self, "sub", local_grad_self), (b, "sub", local_grad_b)]
+        operations = [(self, "sub", local_grad_self_sub), (b, "sub", local_grad_b_sub)]
         return Tensor(result, operations)
 
     def __mul__(self, b: Tensor) -> Tensor:
@@ -100,29 +99,29 @@ class Tensor:
         self_broadcast_axes = compute_broadcast_axes(self.value.shape, result.shape)
         b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
-        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_self_mul(acc: cp.ndarray) -> cp.ndarray:
             return handle_broadcasting(
                 kernels.mul(acc, b.value), self_broadcast_axes, self.value.shape
             )
 
-        def local_grad_b(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_b_mul(acc: cp.ndarray) -> cp.ndarray:
             return handle_broadcasting(
                 kernels.mul(acc, self.value), b_broadcast_axes, b.value.shape
             )
 
         operations = [
-            (self, "mul", local_grad_self),
-            (b, "mul", local_grad_b),
+            (self, "mul", local_grad_self_mul),
+            (b, "mul", local_grad_b_mul),
         ]
         return Tensor(result, operations)
 
     def __neg__(self) -> Tensor:
         result = kernels.neg(self.value)
 
-        def local_grad(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_neg(acc: cp.ndarray) -> cp.ndarray:
             return kernels.neg(acc)
 
-        operations = [(self, "neg", local_grad)]
+        operations = [(self, "neg", local_grad_neg)]
         return Tensor(result, operations)
 
     def __truediv__(self, b: Tensor) -> Tensor:
@@ -131,12 +130,12 @@ class Tensor:
         self_broadcast_axes = compute_broadcast_axes(self.value.shape, result.shape)
         b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
-        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_self_div(acc: cp.ndarray) -> cp.ndarray:
             return handle_broadcasting(
                 kernels.div(acc, b.value), self_broadcast_axes, self.value.shape
             )
 
-        def local_grad_b(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_b_div(acc: cp.ndarray) -> cp.ndarray:
             return handle_broadcasting(
                 kernels.div_local_grad(acc, self.value, b.value),
                 b_broadcast_axes,
@@ -144,8 +143,8 @@ class Tensor:
             )
 
         operations = [
-            (self, "div", local_grad_self),
-            (b, "div", local_grad_b),
+            (self, "div", local_grad_self_div),
+            (b, "div", local_grad_b_div),
         ]
         return Tensor(result, operations)
 
@@ -158,19 +157,19 @@ class Tensor:
             b.value.shape, result.shape, matmul=True
         )
 
-        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_self_matmul(acc: cp.ndarray) -> cp.ndarray:
             # TODO: arguably I should implement this myself
             # FIXME: especially now that i have to copy to make hte view concrete
             grad = kernels.matmul(acc, cp.swapaxes(b.value, -2, -1).copy())
             return handle_broadcasting(grad, self_broadcast_axes, self.value.shape)
 
-        def local_grad_b(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_b_matmul(acc: cp.ndarray) -> cp.ndarray:
             grad = kernels.matmul(cp.swapaxes(self.value, -2, -1).copy(), acc)
             return handle_broadcasting(grad, b_broadcast_axes, b.value.shape)
 
         operations = [
-            (self, "matmul", local_grad_self),
-            (b, "matmul", local_grad_b),
+            (self, "matmul", local_grad_self_matmul),
+            (b, "matmul", local_grad_b_matmul),
         ]
         return Tensor(result, operations)
 
@@ -212,12 +211,12 @@ class Tensor:
         # FIXME: need to do this myself
         result = cp.mean(self.value, axis=axis, keepdims=True)
 
-        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_self_mean(acc: cp.ndarray) -> cp.ndarray:
             n = self.value.size if axis is None else self.value.shape[axis]
             grad = acc * cp.ones_like(self.value) / n
             return grad
 
-        operations = [(self, "sum", local_grad_self)]
+        operations = [(self, "sum", local_grad_self_mean)]
         return Tensor(result, operations)
 
     def var(self, axis: int) -> Tensor:
@@ -226,26 +225,23 @@ class Tensor:
         mean = cp.mean(self.value, axis=axis, keepdims=True)
         n = self.value.shape[axis]
 
-        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_self_var(acc: cp.ndarray) -> cp.ndarray:
             grad = acc * 2 / n * (self.value - mean)
             return grad
 
-        operations = [(self, "sum", local_grad_self)]
+        operations = [(self, "sum", local_grad_self_var)]
         return Tensor(result, operations)
 
     def elu(self) -> Tensor:
         # FIXME: need to do this myself
         mask = self.value < 0
-        result = cp.copy(self.value)
-        result[mask] = cp.exp(result[mask]) - 1
+        result = cp.where(mask, cp.exp(self.value) - 1, self.value)
 
-        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_self_elu(acc: cp.ndarray) -> cp.ndarray:
             # nb assuming alpha is 1
-            grad = cp.ones_like(acc)
-            grad[mask] += result[mask]
-            return acc * grad
+            return acc * cp.where(mask, result + 1, 1.0)
 
-        operations = [(self, "elu", local_grad_self)]
+        operations = [(self, "elu", local_grad_self_elu)]
 
         return Tensor(result, operations)
 
@@ -253,10 +249,10 @@ class Tensor:
         # FIXME: need to do this myself
         result = cp.cumsum(self.value, axis=axis)
 
-        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_self_cumsum(acc: cp.ndarray) -> cp.ndarray:
             return cp.flip(cp.cumsum(cp.flip(acc, axis=axis), axis=axis), axis=axis)
 
-        operations = [(self, "cumsum", local_grad_self)]
+        operations = [(self, "cumsum", local_grad_self_cumsum)]
 
         return Tensor(result, operations)
 
@@ -270,10 +266,10 @@ class Tensor:
         # I've been leaving indexing stuff to cupy
         result = self.value.swapaxes(i, j).copy()
 
-        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_self_transpose(acc: cp.ndarray) -> cp.ndarray:
             return acc.swapaxes(i, j).copy()
 
-        operations = [(self, "T", local_grad_self)]
+        operations = [(self, "T", local_grad_self_transpose)]
 
         return Tensor(result, operations)
 
@@ -282,10 +278,10 @@ class Tensor:
         # I've been leaving indexing stuff to cupy
         result = self.value[..., indices].copy()
 
-        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+        def local_grad_self_permute(acc: cp.ndarray) -> cp.ndarray:
             return acc[..., indices].copy()
 
-        operations = [(self, "swapaxes", local_grad_self)]
+        operations = [(self, "swapaxes", local_grad_self_permute)]
 
         return Tensor(result, operations)
 
