@@ -1,3 +1,6 @@
+from tqdm import tqdm
+
+
 class Trie:
     def __init__(self, value: int):
         self.children = {}
@@ -27,10 +30,33 @@ class Trie:
             return (self.value, key)
         return result
 
+    def traversal_value_iterative(self, key: bytes) -> tuple[int, bytes]:
+        current_val = self.value
+        best_index = 1
+        current_node = self
+        for i in range(len(key)):
+            current_tok = key[i]
+            if current_tok not in current_node.children:
+                break
+            current_node = current_node.children[current_tok]
+            if current_node.value != -1:
+                current_val = current_node.value
+                best_index = i + 1
+        return current_val, key[best_index:]
+
     def tokenize(self, key: bytes, missing_value: int = -2) -> list[int]:
-        index, leftover = self.traversal_value(key)
+        pbar = tqdm(total=len(key))
+        current_length = len(key)
+        index, leftover = self.traversal_value_iterative(key)
+        delta = current_length - len(leftover)
+        pbar.update(delta)
         result = [index]
         while len(leftover) > 0:
-            index, leftover = self.traversal_value(leftover)
+            current_length = len(leftover)
+            # index, leftover = self.traversal_value(leftover)
+            index, leftover = self.traversal_value_iterative(leftover)
+            delta = current_length - len(leftover)
+            pbar.update(delta)
             result.append(index)
+        pbar.close()
         return result
