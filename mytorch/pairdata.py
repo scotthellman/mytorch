@@ -18,7 +18,7 @@ heapq
 class TokenData:
     token: bytes
     count: int
-    locs: list[int]
+    locs: list[tuple[int, int]]
     stale: bool = False
 
     def __eq__(self, other) -> bool:

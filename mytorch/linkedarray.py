@@ -63,7 +63,9 @@ class LinkedArray:
             new_right_node.prev_node = left_node
         return left_node, right_node
 
-    def merge_all(self, indices: list[int]) -> tuple[list[TokenData], Counter[bytes]]:
+    def merge_all(
+        self, indices: list[int], word_index: int
+    ) -> tuple[list[TokenData], Counter[bytes]]:
         new_pair_counts = {}
         stale_counts = Counter()
         frontier_index = -1
@@ -130,8 +132,8 @@ class LinkedArray:
                         new_pair_counts[new_pair] = TokenData(new_pair, 0, [])
                     data = new_pair_counts[new_pair]
                     data.count += 1
-                    data.locs.append(new_node.prev_node.index)
-                    assert self.array[data.locs[-1]] is not None
+                    data.locs.append((word_index, new_node.prev_node.index))
+                    assert self.array[data.locs[-1][1]] is not None
             if new_node.next_node is not None:
                 stale_counts[info.old_right_val + info.old_next_val] += 1
                 new_pair = new_node.value + new_node.next_node.value
@@ -139,8 +141,8 @@ class LinkedArray:
                     new_pair_counts[new_pair] = TokenData(new_pair, 0, [])
                 data = new_pair_counts[new_pair]
                 data.count += 1
-                data.locs.append(new_node.index)
-                assert self.array[data.locs[-1]] is not None
+                data.locs.append((word_index, new_node.index))
+                assert self.array[data.locs[-1][1]] is not None
                 frontier_index = new_node.index
         return list(new_pair_counts.values()), stale_counts
 
