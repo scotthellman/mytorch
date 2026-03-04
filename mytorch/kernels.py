@@ -405,6 +405,39 @@ void rope_kernel(const float* a, float* out, int emb_size, int seq_size, int bat
 """
 rope_kernel = cp.RawKernel(rope_code, "rope_kernel")
 
+elu_code = r"""
+extern "C" __global__
+void elu_kernel(const float* a, float* out, const int added, const int n) {
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    for (int i = tid; i < n; i += stride){
+        float val = a[i];
+        if(val < 0){
+            val = exp(val) - 1;
+        }
+        out[i] = val + added;
+    }
+}
+"""
+elu_kernel = cp.RawKernel(elu_code, "elu_kernel")
+
+elu_back_code = r"""
+extern "C" __global__
+void elu_back_kernel(const float* elu_output, float* grad, const int added, const int n) {
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    for (int i = tid; i < n; i += stride){
+        float val = elu_output[i] - added;
+        if(val < 0){
+            grad[i] *= val + 1;
+        } 
+    }
+}
+"""
+elu_back_kernel = cp.RawKernel(elu_back_code, "elu_back_kernel")
+
 
 def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
     broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
@@ -702,3 +735,30 @@ def rope(a: cp.ndarray, backward: bool = False) -> cp.ndarray:
         (a, result, emb_size, seq_size, batch_size, backward),
     )
     return result
+
+
+def elu(a: cp.ndarray, added: int = 0) -> cp.ndarray:
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    elu_kernel(
+        grid_size,
+        block_size,
+        (a, result, added, n),
+    )
+    return result
+
+
+def elu_back(a: cp.ndarray, grad: cp.ndarray, added: int = 0) -> cp.ndarray:
+    # NOTE: this modifies grad in place
+    n = grad.size
+    block_size = (512,)
+    grid_size = (math.ceil(grad.size / block_size[0]),)
+    elu_back_kernel(
+        grid_size,
+        block_size,
+        (a, grad, added, n),
+    )
+    return grad

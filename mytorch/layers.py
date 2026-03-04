@@ -162,8 +162,8 @@ class SelfAttention:
         v = v.transpose(1, 2)
 
         # these are still (b,s,key)
-        transformed_q = q.elu().add_constant(1)
-        transformed_k = k.elu().add_constant(1)
+        transformed_q = q.elu(1)
+        transformed_k = k.elu(1)
 
         # compute numerator and denominator separately, so that we can cleanly
         # split the custom backprop code out

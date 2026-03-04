@@ -232,14 +232,11 @@ class Tensor:
         operations = [(self, "sum", local_grad_self_var)]
         return Tensor(result, operations)
 
-    def elu(self) -> Tensor:
-        # FIXME: need to do this myself
-        mask = self.value < 0
-        result = cp.where(mask, cp.exp(self.value) - 1, self.value)
+    def elu(self, added: int = 0) -> Tensor:
+        result = kernels.elu(self.value, added)
 
         def local_grad_self_elu(acc: cp.ndarray) -> cp.ndarray:
-            # nb assuming alpha is 1
-            return acc * cp.where(mask, result + 1, 1.0)
+            return kernels.elu_back(result, acc, added)
 
         operations = [(self, "elu", local_grad_self_elu)]
 
