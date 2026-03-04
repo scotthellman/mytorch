@@ -24,7 +24,7 @@ def test_linked_array_merge_all():
     arr = LinkedArray(test)
     # let's say we're merging "is"
     indices = [0, 3, 6]
-    new_counts, stale_counts = arr.merge_all(indices)
+    new_counts, stale_counts = arr.merge_all(indices, 0)
 
     expected_new_counts = {b"is ": 2, b" is": 2}
     expected_stale = {b"s ": 2, b" i": 2, "s": 3, "i": 3}
@@ -42,9 +42,9 @@ def test_linked_array_repeated_merging_correctness():
     test = "the specifics don't matter here, just need some text".encode()
     arr = LinkedArray(test)
     indices = [0, 3, 6]
-    arr.merge_all(indices)
+    arr.merge_all(indices, 0)
     indices = [6, 13, 16]
-    arr.merge_all(indices)
+    arr.merge_all(indices, 0)
 
     node = arr[0]
     reconstructed = [node.value]
