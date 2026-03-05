@@ -1,6 +1,7 @@
 import cupy as cp
 import numpy as np
 
+from mytorch import kernels
 from mytorch.tensor import Tensor
 
 
@@ -34,10 +35,20 @@ class Adam:
         self.eps = eps
         self.clip = clip
         self.warmup_steps = warmup_steps
+        for group in self.tensors:
+            for t in group[0]:
+                self.means[t] = cp.zeros_like(t.value)
+                self.vars[t] = cp.zeros_like(t.value)
+
+    def decay_lr(self, rate: float):
+        new_tensors = []
+        for group in self.tensors:
+            new_tensors.append((group[0], group[1] * rate, group[2]))
+        self.tensors = new_tensors
 
     def step(self):
         self.t += 1
-        normalizer = None
+        normalizer = 1.0
         lr_adjustment = 1
         if self.t < self.warmup_steps:
             lr_adjustment = (self.t + 1) / (self.warmup_steps + 1)
@@ -52,41 +63,28 @@ class Adam:
             rss = np.sqrt(squared_sum)
             if rss > self.clip:
                 normalizer = self.clip / rss
+                if cp.any(cp.isnan(normalizer)):
+                    print("clipping normalizer went to nan", self.clip, rss)
             squared_sum = 0
         seen = set()
         for tensors, lr, decay in self.tensors:
-            for t in tensors:
-                if t.frozen or t in seen:
+            for tensor in tensors:
+                if tensor.frozen or tensor in seen:
                     continue
-                seen.add(t)
+                seen.add(tensor)
 
-                last_m = self.means.get(t, Tensor(cp.zeros_like(t.grad)))
-                last_v = self.vars.get(t, Tensor(cp.zeros_like(t.grad)))
-                if normalizer is not None:
-                    grad = t.grad * normalizer
-                grad = Tensor(t.grad)
-
-                m = last_m.mult_constant(self.b1) + grad.mult_constant(1 - self.b1)
-
-                v = grad * grad
-                if last_v is not None:
-                    v = last_v.mult_constant(self.b2) + v.mult_constant(1 - self.b2)
-
-                # FIXME: need a proper detach
-                m.operations = []
-                v.operations = []
-                self.means[t] = m
-                self.vars[t] = v
-
-                normed_m = m.mult_constant(1 / (1 - self.b1**self.t))
-                normed_v = v.mult_constant(1 / (1 - self.b2**self.t))
-
-                t.value -= (
-                    lr_adjustment
-                    * lr
-                    * (
-                        (normed_m / normed_v.sqrt().add_constant(self.eps)).value
-                        - decay * t.value
-                    )
+                last_m = self.means[tensor]
+                last_v = self.vars[tensor]
+                kernels.adam_update(
+                    last_m,
+                    last_v,
+                    tensor.grad,
+                    self.b1,
+                    self.b2,
+                    self.t,
+                    lr * lr_adjustment,
+                    self.eps,
+                    float(normalizer),
+                    tensor.value,
                 )
-                t.reset()
+                tensor.reset()

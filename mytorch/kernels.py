@@ -1,6 +1,7 @@
 import math
 
 import cupy as cp
+import numpy as np
 
 # These constants are used by the matmul code - we have to define them up here
 # so that we can find/replace them in the cuda source. From cuda's perspective
@@ -424,19 +425,71 @@ elu_kernel = cp.RawKernel(elu_code, "elu_kernel")
 
 elu_back_code = r"""
 extern "C" __global__
-void elu_back_kernel(const float* elu_output, float* grad, const int added, const int n) {
+void elu_back_kernel(const float* elu_output, float* grad, float* out, const int added, const int n) {
     int tid = blockDim.x * blockIdx.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
 
     for (int i = tid; i < n; i += stride){
-        float val = elu_output[i] - added;
-        if(val < 0){
-            grad[i] *= val + 1;
-        } 
+        float val = fminf(elu_output[i] - added + 1, 1.0f);
+        out[i] = grad[i] * val;
     }
 }
 """
 elu_back_kernel = cp.RawKernel(elu_back_code, "elu_back_kernel")
+
+adam_update_code = r"""
+extern "C" __global__
+void adam_update_kernel(float* m_in, float* v_in, const float* grad, const float b1, const float b2, const float t, const float lr,
+                     const float eps, const float grad_norm, float* weights, const int n) {
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    for (int i = tid; i < n; i += stride){
+        float g = grad[i]*grad_norm;
+        float m = m_in[i] * b1 + g * (1.0-b1);
+        float v = v_in[i] * b2 + g*g * (1.0-b2);
+        m_in[i] = m;
+        v_in[i] = v;
+        weights[i] -= lr * (m/(1-pow(b1,t))) / (sqrt(v/(1.0-pow(b2,t))) + eps);
+    }
+}
+"""
+adam_update_kernel = cp.RawKernel(adam_update_code, "adam_update_kernel")
+
+
+def adam_update(
+    means: cp.ndarray,
+    vars: cp.ndarray,
+    grad: cp.ndarray,
+    b1: float,
+    b2: float,
+    t: int,
+    lr: float,
+    eps: float,
+    normalizer: float,
+    weights: cp.ndarray,
+):
+    # updates means, vars, weights inplace
+    n = weights.size
+    block_size = (512,)
+    grid_size = (math.ceil(weights.size / block_size[0]),)
+    adam_update_kernel(
+        grid_size,
+        block_size,
+        (
+            means,
+            vars,
+            grad,
+            np.float32(b1),
+            np.float32(b2),
+            np.float32(t),
+            np.float32(lr),
+            np.float32(eps),
+            np.float32(normalizer),
+            weights,
+            n,
+        ),
+    )
 
 
 def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
@@ -679,7 +732,7 @@ def layernorm(a: cp.ndarray, eps: float = 1e-6) -> cp.ndarray:
     layernorm_kernel(
         grid_size,
         block_size,
-        (a, result, inv_vars, norms, a.shape[-1], n, eps),
+        (a, result, inv_vars, norms, a.shape[-1], n, np.float32(eps)),
     )
     grad_data = (inv_vars, norms)
     return result, grad_data
@@ -752,13 +805,14 @@ def elu(a: cp.ndarray, added: int = 0) -> cp.ndarray:
 
 
 def elu_back(a: cp.ndarray, grad: cp.ndarray, added: int = 0) -> cp.ndarray:
-    # NOTE: this modifies grad in place
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
     n = grad.size
     block_size = (512,)
     grid_size = (math.ceil(grad.size / block_size[0]),)
     elu_back_kernel(
         grid_size,
         block_size,
-        (a, grad, added, n),
+        (a, grad, result, added, n),
     )
-    return grad
+    return result

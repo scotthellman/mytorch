@@ -215,9 +215,13 @@ class SelfAttention:
             dtype=cp.float32,
         )
         num = cp.zeros_like(phi_k)
-        for i in range(phi_k.shape[-2]):
-            s = s + phi_k[..., i, :, None] @ v[..., i, None, :]
-            num[..., i, :] = (phi_q[..., i, None, :] @ s).squeeze(-2)
+        outer_product = phi_k[..., None] * v[..., None, :]
+        s = cp.cumsum(outer_product, axis=-3)
+        num = (phi_q[..., None, :] @ s).squeeze(-2)
+        # time/space tradeoff here. Going for space right now
+        # for i in range(phi_k.shape[-2]):
+        #    s = s + phi_k[..., i, :, None] @ v[..., i, None, :]
+        #    num[..., i, :] = (phi_q[..., i, None, :] @ s).squeeze(-2)
 
         # so we have the actual values, but we still need the gradients
         # There's some repeated work done by this backward pass funcs, so
@@ -230,25 +234,30 @@ class SelfAttention:
             nonlocal grad_q
             nonlocal grad_v
             nonlocal grad_k
-            s = cp.zeros(
-                (phi_k.shape[0], phi_k.shape[1], self.key_size, self.key_size),
-                dtype=cp.float32,
-            )
-            grad_q = cp.zeros_like(phi_q)
-            for i in range(phi_k.shape[-2]):
-                s = s + phi_k[..., i, :, None] @ v[..., i, None, :]
-                grad_q[..., i, :] = (acc[..., i, None, :] @ s.swapaxes(-1, -2)).squeeze(
-                    -2
-                )
-            s *= 0
-            grad_v = cp.zeros_like(phi_k)
-            grad_k = cp.zeros_like(phi_k)
-            for i in range(phi_q.shape[-2] - 1, -1, -1):
-                s = s + phi_q[..., i, :, None] @ acc[..., i, None, :]
-                grad_v[..., i, :] = (
-                    s.swapaxes(-1, -2) @ phi_k[..., i, :, None]
-                ).squeeze(-1)
-                grad_k[..., i, :] = (s @ v[..., i, :, None]).squeeze(-1)
+            nonlocal s
+            # s = cp.zeros(
+            #    (phi_k.shape[0], phi_k.shape[1], self.key_size, self.key_size),
+            #    dtype=cp.float32,
+            # )
+            grad_q = (acc[..., None, :] @ s.swapaxes(-1, -2)).squeeze(-2)
+            # grad_q = cp.zeros_like(phi_q)
+            # for i in range(phi_k.shape[-2]):
+            #    s = s + phi_k[..., i, :, None] @ v[..., i, None, :]
+            #    grad_q[..., i, :] = (acc[..., i, None, :] @ s.swapaxes(-1, -2)).squeeze(
+            #        -2
+            #    )
+            outer_product = phi_q[..., None] * acc[..., None, :]
+            s = cp.flip(cp.cumsum(cp.flip(outer_product, axis=-3), axis=-3), axis=-3)
+            grad_v = (s.swapaxes(-1, -2) @ phi_k[..., :, None]).squeeze(-1)
+            grad_k = (s @ v[..., :, None]).squeeze(-1)
+            # grad_v = cp.zeros_like(phi_k)
+            # grad_k = cp.zeros_like(phi_k)
+            # for i in range(phi_q.shape - 1, -1, -1):
+            #    s = s + phi_q[..., i, :, None] @ acc[..., i, None, :]
+            #    grad_v[..., i, :] = (
+            #        s.swapaxes(-1, -2) @ phi_k[..., i, :, None]
+            #    ).squeeze(-1)
+            #    grad_k[..., i, :] = (s @ v[..., i, :, None]).squeeze(-1)
 
         def local_grad_q(acc: cp.ndarray) -> cp.ndarray:
             nonlocal grad_q
