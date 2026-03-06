@@ -152,14 +152,16 @@ class SelfAttention:
         # multihead indexing reference: https://github.com/Whiax/BERT-Transformer-Pytorch/blob/main/train.py#L50
 
         # now we want to split into our heads
-        q = q.reshape((input.value.shape[0], -1, self.n_heads, self.key_size))
-        k = k.reshape((input.value.shape[0], -1, self.n_heads, self.key_size))
-        v = v.reshape((input.value.shape[0], -1, self.n_heads, self.key_size))
-
-        # shuffle n_heads to be one of the batch dims
-        q = q.transpose(1, 2)
-        k = k.transpose(1, 2)
-        v = v.transpose(1, 2)
+        # and then shuffle n_heads to be one of the batch dims
+        q = q.reshape_then_transpose(
+            (input.value.shape[0], -1, self.n_heads, self.key_size), 1, 2
+        )
+        k = k.reshape_then_transpose(
+            (input.value.shape[0], -1, self.n_heads, self.key_size), 1, 2
+        )
+        v = v.reshape_then_transpose(
+            (input.value.shape[0], -1, self.n_heads, self.key_size), 1, 2
+        )
 
         # these are still (b,s,key)
         transformed_q = q.elu(1)
@@ -175,10 +177,8 @@ class SelfAttention:
         # denom is of shape (b, s, 1)
         # we want the dot product of q_i and the partial sum of k_i
         # We implement that with an elementwise muilt and then summing over the final dim
-        denom = (
-            (transformed_q * transformed_k.cumsum(axis=2))
-            .sum(axis=-1, keepdims=True)
-            .add_constant(1e-6)
+        denom = (transformed_q * transformed_k.cumsum(axis=2)).sum(
+            axis=-1, keepdims=True, constant_term=1e-6
         )
 
         result = num / denom

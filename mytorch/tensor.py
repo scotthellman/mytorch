@@ -54,18 +54,6 @@ class Tensor:
 
         return Tensor(result, [(self, "index", local_grad)])
 
-    def reshape(self, shape: tuple[int]) -> Tensor:
-        result = self.value.reshape(shape)
-
-        def local_grad(acc: cp.ndarray) -> cp.ndarray:
-            return acc.reshape(self.value.shape)
-
-        operations = [
-            (self, "reshape", local_grad),
-        ]
-
-        return Tensor(result, operations)
-
     def __add__(self, b: Tensor) -> Tensor:
         result = kernels.add(self.value, b.value)
         self_broadcast_axes = compute_broadcast_axes(self.value.shape, result.shape)
@@ -230,9 +218,11 @@ class Tensor:
         operations = [(self, "exp", lambda acc: acc * kernels.exp(self.value))]
         return Tensor(result, operations)
 
-    def sum(self, axis: int | None = None, keepdims: bool = False) -> Tensor:
+    def sum(
+        self, axis: int | None = None, keepdims: bool = False, constant_term: float = 0
+    ) -> Tensor:
         # FIXME: need to do this myself
-        result = cp.sum(self.value, axis=axis, keepdims=keepdims)
+        result = cp.sum(self.value, axis=axis, keepdims=keepdims) + constant_term
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
             grad = acc * cp.ones_like(self.value)
@@ -293,6 +283,18 @@ class Tensor:
 
         return Tensor(result, operations)
 
+    def reshape(self, shape: tuple[int]) -> Tensor:
+        result = self.value.reshape(shape).copy()
+
+        def local_grad(acc: cp.ndarray) -> cp.ndarray:
+            return acc.reshape(self.value.shape)
+
+        operations = [
+            (self, "reshape", local_grad),
+        ]
+
+        return Tensor(result, operations)
+
     def transpose_last(self) -> Tensor:
         # NOTE: I give myself permission to not do this myself,
         # I've been leaving indexing stuff to cupy
@@ -307,6 +309,17 @@ class Tensor:
             return acc.swapaxes(i, j).copy()
 
         operations = [(self, "T", local_grad_self_transpose)]
+
+        return Tensor(result, operations)
+
+    def reshape_then_transpose(self, shape: tuple[int], i: int, j: int) -> Tensor:
+        # fusing reshape and transpose since they both force copies
+        result = self.value.reshape(shape).swapaxes(i, j).copy()
+
+        def local_grad_self_reshape_transpose(acc: cp.ndarray) -> cp.ndarray:
+            return acc.swapaxes(i, j).reshape(self.value.shape).copy()
+
+        operations = [(self, "R->T", local_grad_self_reshape_transpose)]
 
         return Tensor(result, operations)
 
