@@ -29,6 +29,8 @@ class Tensor:
         stack: list[tuple[Tensor, cp.ndarray]] = [
             (self, cp.ones(self.value.shape, dtype=cp.float32))
         ]
+        # import networkx as nx
+
         # G = nx.DiGraph()
         while stack:
             current_variable, current_value = stack.pop()
@@ -312,14 +314,18 @@ class Tensor:
 
         return Tensor(result, operations)
 
-    def reshape_then_transpose(self, shape: tuple[int], i: int, j: int) -> Tensor:
+    def index_reshape_transpose(
+        self, key: tuple, shape: tuple[int], i: int, j: int
+    ) -> Tensor:
         # fusing reshape and transpose since they both force copies
-        result = self.value.reshape(shape).swapaxes(i, j).copy()
+        result = self.value[key].reshape(shape).swapaxes(i, j).copy()
 
         def local_grad_self_reshape_transpose(acc: cp.ndarray) -> cp.ndarray:
-            return acc.swapaxes(i, j).reshape(self.value.shape).copy()
+            grad = cp.zeros_like(self.value)
+            grad[key] = acc.swapaxes(i, j).reshape(self.value[key].shape)
+            return grad
 
-        operations = [(self, "R->T", local_grad_self_reshape_transpose)]
+        operations = [(self, "IRT", local_grad_self_reshape_transpose)]
 
         return Tensor(result, operations)
 

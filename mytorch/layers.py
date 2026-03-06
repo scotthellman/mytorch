@@ -138,9 +138,6 @@ class SelfAttention:
         # get our q,k,v values
         # q,k,v are all (b,s,key)
         qwk = input @ self.weights
-        q = qwk[..., : self.embedding_size]
-        k = qwk[..., self.embedding_size : self.embedding_size * 2]
-        v = qwk[..., self.embedding_size * 2 :]
         # now we need to calculate our similarities. Have to stop going off of AIAYN now,
         # switch to the linear attention paper
         # if we were doing AIAYN, we would get: result = softmax((Q@K.T) / sqrt(self.key_size)) @ V
@@ -153,14 +150,23 @@ class SelfAttention:
 
         # now we want to split into our heads
         # and then shuffle n_heads to be one of the batch dims
-        q = q.reshape_then_transpose(
-            (input.value.shape[0], -1, self.n_heads, self.key_size), 1, 2
+        q = qwk.index_reshape_transpose(
+            (Ellipsis, slice(None, self.embedding_size)),
+            (input.value.shape[0], -1, self.n_heads, self.key_size),
+            1,
+            2,
         )
-        k = k.reshape_then_transpose(
-            (input.value.shape[0], -1, self.n_heads, self.key_size), 1, 2
+        k = qwk.index_reshape_transpose(
+            (Ellipsis, slice(self.embedding_size, self.embedding_size * 2)),
+            (input.value.shape[0], -1, self.n_heads, self.key_size),
+            1,
+            2,
         )
-        v = v.reshape_then_transpose(
-            (input.value.shape[0], -1, self.n_heads, self.key_size), 1, 2
+        v = qwk.index_reshape_transpose(
+            (Ellipsis, slice(self.embedding_size * 2, None)),
+            (input.value.shape[0], -1, self.n_heads, self.key_size),
+            1,
+            2,
         )
 
         # these are still (b,s,key)
