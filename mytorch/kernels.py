@@ -61,6 +61,19 @@ void mul_kernel(const float* a, const float* b, float* out, int n) {
 """
 mul_kernel = cp.RawKernel(mul_code, "mul_kernel")
 
+mul_and_add_code = r"""
+extern "C" __global__
+void mul_and_add_kernel(const float* a, const float* mul_term, const float* add_term, float* out, int n) {
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    for (int i = tid; i < n; i += stride){
+        out[i] = a[i] * mul_term[i] + add_term[i];
+    }
+}
+"""
+mul_and_add_kernel = cp.RawKernel(mul_and_add_code, "mul_and_add_kernel")
+
 div_code = r"""
 extern "C" __global__
 void div_kernel(const float* a, const float* b, float* out, int n) {
@@ -473,6 +486,9 @@ def adam_update(
     n = weights.size
     block_size = (512,)
     grid_size = (math.ceil(weights.size / block_size[0]),)
+    assert means.shape == vars.shape
+    assert vars.shape == grad.shape
+    assert grad.shape == weights.shape
     adam_update_kernel(
         grid_size,
         block_size,
@@ -490,6 +506,7 @@ def adam_update(
             n,
         ),
     )
+    cp.cuda.runtime.deviceSynchronize()
 
 
 def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
@@ -505,6 +522,7 @@ def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
         block_size,
         (a, b, result, n),
     )
+    cp.cuda.runtime.deviceSynchronize()
     return result
 
 
@@ -521,6 +539,7 @@ def sub(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
         block_size,
         (a, b, result, n),
     )
+    cp.cuda.runtime.deviceSynchronize()
     return result
 
 
@@ -537,6 +556,27 @@ def mul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
         block_size,
         (a, b, result, n),
     )
+    cp.cuda.runtime.deviceSynchronize()
+    return result
+
+
+def mul_and_add(
+    a: cp.ndarray, mul_term: cp.ndarray, add_term: cp.ndarray
+) -> cp.ndarray:
+    broadcast_shape = cp.broadcast_shapes(a.shape, mul_term.shape, add_term.shape)
+    result = cp.empty(broadcast_shape, dtype=cp.float32)
+    a = broadcast_if_needed(a, broadcast_shape)
+    mul_term = broadcast_if_needed(mul_term, broadcast_shape)
+    add_term = broadcast_if_needed(add_term, broadcast_shape)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    mul_and_add_kernel(
+        grid_size,
+        block_size,
+        (a, mul_term, add_term, result, n),
+    )
+    cp.cuda.runtime.deviceSynchronize()
     return result
 
 
@@ -553,6 +593,7 @@ def div(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
         block_size,
         (a, b, result, n),
     )
+    cp.cuda.runtime.deviceSynchronize()
     return result
 
 
@@ -576,6 +617,7 @@ def div_local_grad(path: cp.ndarray, num: cp.ndarray, den: cp.ndarray) -> cp.nda
             n,
         ),
     )
+    cp.cuda.runtime.deviceSynchronize()
     return result
 
 
@@ -604,6 +646,7 @@ def exp(a: cp.ndarray) -> cp.ndarray:
         block_size,
         (a, result, n),
     )
+    cp.cuda.runtime.deviceSynchronize()
     return result
 
 
@@ -632,6 +675,7 @@ def sqrt(a: cp.ndarray) -> cp.ndarray:
         block_size,
         (a, result, n),
     )
+    cp.cuda.runtime.deviceSynchronize()
     return result
 
 
@@ -650,6 +694,7 @@ def cross_entropy(a: cp.ndarray, targets: cp.ndarray) -> cp.ndarray:
         block_size,
         (a, targets, result, grad_result, a.shape[-1], n),
     )
+    cp.cuda.runtime.deviceSynchronize()
     return result, grad_result
 
 
@@ -700,6 +745,7 @@ def matmul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
             result,
         ),
     )
+    cp.cuda.runtime.deviceSynchronize()
     return result
 
 
@@ -734,6 +780,7 @@ def layernorm(a: cp.ndarray, eps: float = 1e-6) -> cp.ndarray:
         block_size,
         (a, result, inv_vars, norms, a.shape[-1], n, np.float32(eps)),
     )
+    cp.cuda.runtime.deviceSynchronize()
     grad_data = (inv_vars, norms)
     return result, grad_data
 
@@ -787,6 +834,7 @@ def rope(a: cp.ndarray, backward: bool = False) -> cp.ndarray:
         block_size,
         (a, result, emb_size, seq_size, batch_size, backward),
     )
+    cp.cuda.runtime.deviceSynchronize()
     return result
 
 
@@ -801,6 +849,7 @@ def elu(a: cp.ndarray, added: int = 0) -> cp.ndarray:
         block_size,
         (a, result, added, n),
     )
+    cp.cuda.runtime.deviceSynchronize()
     return result
 
 
@@ -815,4 +864,5 @@ def elu_back(a: cp.ndarray, grad: cp.ndarray, added: int = 0) -> cp.ndarray:
         block_size,
         (a, grad, result, added, n),
     )
+    cp.cuda.runtime.deviceSynchronize()
     return result

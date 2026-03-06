@@ -29,12 +29,18 @@ class Tensor:
         stack: list[tuple[Tensor, cp.ndarray]] = [
             (self, cp.ones(self.value.shape, dtype=cp.float32))
         ]
+        # G = nx.DiGraph()
         while stack:
             current_variable, current_value = stack.pop()
             for child, name, op in current_variable.operations:
+                # G.add_edge(hash(current_variable), hash(child), label=name)
                 child_value = op(current_value)
                 child.grad += child_value
                 stack.append((child, child_value))
+        # nx.nx_pydot.write_dot(G, "graph.dot")
+        # graph = nx.drawing.nx_pydot.to_pydot(G)
+        # graph.write_png("output.png")
+        # 1 / 0
 
         return gradients
 
@@ -170,6 +176,40 @@ class Tensor:
         operations = [
             (self, "matmul", local_grad_self_matmul),
             (b, "matmul", local_grad_b_matmul),
+        ]
+        return Tensor(result, operations)
+
+    def mul_and_add(self, mul_term: Tensor, add_term: Tensor) -> Tensor:
+        result = kernels.mul_and_add(self.value, mul_term.value, add_term.value)
+        self_broadcast_axes = compute_broadcast_axes(self.value.shape, result.shape)
+        mul_term_broadcast_axes = compute_broadcast_axes(
+            mul_term.value.shape, result.shape
+        )
+        add_term_broadcast_axes = compute_broadcast_axes(
+            add_term.value.shape, result.shape
+        )
+
+        def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
+            return handle_broadcasting(
+                kernels.mul(acc, mul_term.value), self_broadcast_axes, self.value.shape
+            )
+
+        def local_grad_add(acc: cp.ndarray) -> cp.ndarray:
+            return handle_broadcasting(
+                acc, add_term_broadcast_axes, add_term.value.shape
+            )
+
+        def local_grad_mul(acc: cp.ndarray) -> cp.ndarray:
+            return handle_broadcasting(
+                kernels.mul(acc, self.value),
+                mul_term_broadcast_axes,
+                mul_term.value.shape,
+            )
+
+        operations = [
+            (self, "mul_and_add", local_grad_self),
+            (mul_term, "mul_and_add", local_grad_mul),
+            (add_term, "mul_and_add", local_grad_add),
         ]
         return Tensor(result, operations)
 

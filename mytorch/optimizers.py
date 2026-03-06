@@ -43,6 +43,7 @@ class Adam:
     def decay_lr(self, rate: float):
         new_tensors = []
         for group in self.tensors:
+            print("lr decaying to ", group[1] * rate)
             new_tensors.append((group[0], group[1] * rate, group[2]))
         self.tensors = new_tensors
 
@@ -57,7 +58,7 @@ class Adam:
             squared_sum = 0
             for tensors, _, __ in self.tensors:
                 for tensor in tensors:
-                    if tensor not in seen:
+                    if tensor not in seen and tensor.grad is not None:
                         squared_sum += (tensor.grad**2).sum()
                         seen.add(tensor)
             rss = np.sqrt(squared_sum)

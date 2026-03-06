@@ -65,7 +65,7 @@ class LayerNorm:
 
         ops = [(input, "layernorm", local_grad)]
         result = Tensor(normed, ops)
-        return result * self.w + self.b
+        return result.mul_and_add(self.w, self.b)
 
 
 class Embedding:
