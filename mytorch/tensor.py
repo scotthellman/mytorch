@@ -23,28 +23,66 @@ class Tensor:
     def reset(self):
         self.grad = cp.zeros_like(self.value)
 
-    def compute_gradient(self) -> dict["Tensor", cp.ndarray]:
-        gradients = {}
+    def compute_gradient(self):
 
-        stack: list[tuple[Tensor, cp.ndarray]] = [
-            (self, cp.ones(self.value.shape, dtype=cp.float32))
-        ]
         # import networkx as nx
 
         # G = nx.DiGraph()
-        while stack:
-            current_variable, current_value = stack.pop()
+        visit_order = self.toposort()
+        path_gradients = {self: cp.ones(self.value.shape, dtype=cp.float32)}
+        for current_variable in visit_order:
+            current_value = path_gradients[current_variable]
+            if not current_variable.frozen:
+                current_variable.grad += path_gradients[current_variable]
             for child, name, op in current_variable.operations:
                 # G.add_edge(hash(current_variable), hash(child), label=name)
                 child_value = op(current_value)
-                child.grad += child_value
-                stack.append((child, child_value))
+                if child not in path_gradients:
+                    path_gradients[child] = child_value
+                else:
+                    path_gradients[child] += child_value
+            # free up that memory
+            del path_gradients[current_variable]
         # nx.nx_pydot.write_dot(G, "graph.dot")
         # graph = nx.drawing.nx_pydot.to_pydot(G)
         # graph.write_png("output.png")
         # 1 / 0
 
-        return gradients
+    def build_compute_graph(self) -> dict["Tensor", set["Tensor"]]:
+        parents: dict[Tensor, set[Tensor]] = {self: set()}
+        children: dict[Tensor, set[Tensor]] = {}
+        stack: list[Tensor] = [self]
+        while stack:
+            current_variable = stack.pop()
+            if current_variable not in children:
+                children[current_variable] = set()
+            for child, name, op in current_variable.operations:
+                if child not in parents:
+                    parents[child] = set()
+                if child not in children:
+                    children[child] = set()
+                parents[child].add(current_variable)
+                children[current_variable].add(child)
+                stack.append(child)
+        return children
+
+    def toposort(self):
+        children = self.build_compute_graph()
+
+        ordering = self._toposort(children, set())
+        return ordering[::-1]
+
+    def _toposort(
+        self, children: dict["Tensor"], seen: set["Tensor"]
+    ) -> list["Tensor"]:
+        # we know our graph is a tree, so this is a straightforward dfs
+        seen.add(self)
+        ordering = []
+        for child in children[self]:
+            if child not in seen:
+                ordering.extend(child._toposort(children, seen))
+        ordering.append(self)
+        return ordering
 
     def __getitem__(self, key) -> Tensor:
         result = self.value[key]
