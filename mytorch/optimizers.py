@@ -58,7 +58,7 @@ class Adam:
             squared_sum = 0
             for tensors, _, __ in self.tensors:
                 for tensor in tensors:
-                    if tensor not in seen and tensor.grad is not None:
+                    if tensor not in seen:
                         squared_sum += (tensor.grad**2).sum()
                         seen.add(tensor)
             rss = np.sqrt(squared_sum)
@@ -69,6 +69,7 @@ class Adam:
             squared_sum = 0
         seen = set()
         for tensors, lr, decay in self.tensors:
+            adjusted_lr = lr * lr_adjustment
             for tensor in tensors:
                 if tensor.frozen or tensor in seen:
                     continue
@@ -83,7 +84,7 @@ class Adam:
                     self.b1,
                     self.b2,
                     self.t,
-                    lr * lr_adjustment,
+                    adjusted_lr,
                     self.eps,
                     float(normalizer),
                     tensor.value,
