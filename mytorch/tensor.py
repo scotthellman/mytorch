@@ -49,19 +49,16 @@ class Tensor:
         # 1 / 0
 
     def build_compute_graph(self) -> dict["Tensor", set["Tensor"]]:
-        parents: dict[Tensor, set[Tensor]] = {self: set()}
         children: dict[Tensor, set[Tensor]] = {}
         stack: list[Tensor] = [self]
         while stack:
             current_variable = stack.pop()
-            if current_variable not in children:
-                children[current_variable] = set()
-            for child, name, op in current_variable.operations:
-                if child not in parents:
-                    parents[child] = set()
-                if child not in children:
-                    children[child] = set()
-                parents[child].add(current_variable)
+            if current_variable in children:
+                # we got this one already
+                continue
+            children[current_variable] = set()
+            for group in current_variable.operations:
+                child = group[0]
                 children[current_variable].add(child)
                 stack.append(child)
         return children
