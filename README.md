@@ -1,0 +1,29 @@
+MyTorch
+=====
+
+A minimal implementation of all of the pieces necessary to train a transformer on a GPU without using PyTorch. 
+
+This is a learning project whose goal was to implement transformers "from scratch." Specifically, I stopped at using CuPy to handle invoking custom CUDA kernels - so e.g. memory management of data to and from the GPU was out of scope.
+
+What's implemented:
+
+* Tokenization with Byte Pair Encoding, both learning the vocabulary and tokenizing a text using that vocabulary.
+* Custom CUDA kernels for all GPU operations (modulo a few FIXMEs where I am still relying on CuPy)
+* Rotary positional embeddings (RoPE)
+* Linear self attention
+* Reverse-mode automatic differentiation
+* Optimization with AdamW
+* Linear, Self Attention, Embedding, and LayerNorm neural network layers
+* ELU and Sigmoid activation functions
+
+Resources
+-------
+
+An incomplete list of resources that were helpful in finishing this project:
+
+* Efficient matrix multiplication from [How to Optimize a CUDA Matmul Kernel for cuBLAS-like Performance: a Worklog](https://siboehm.com/articles/22/CUDA-MMM)
+* Linear self attention from the paper itself, [Transformers are RNNs: Fast Autoregressive Transformers with Linear Attention](https://arxiv.org/abs/2006.16236)
+* RoPE also from the paper itself, [RoFormer: Enhanced Transformer with Rotary Position Embedding](https://arxiv.org/abs/2104.09864)
+* Layernorm from [Karpathy's description](https://github.com/karpathy/llm.c/blob/master/doc/layernorm/layernorm.md)
+* Refresher on the basics of reverse mode autograd from [Reverse-mode automatic differentiation from scratch, in Python](https://sidsite.com/posts/autodiff/)
+* Byte Pair Encoding from [Efficient BPE Tokenization from Scratch](https://github.com/marta1994/efficient_bpe_explanation)
