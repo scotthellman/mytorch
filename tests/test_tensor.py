@@ -170,7 +170,7 @@ def test_elu():
 
 
 def test_add_grad(two_d_tensor):
-    right = Tensor(cp.copy(two_d_tensor.value + 5))
+    right = Tensor(cp.copy(two_d_tensor.value + 5), frozen=False)
 
     def left_loss_func(x):
         return (x + right).sum()
@@ -183,7 +183,7 @@ def test_add_grad(two_d_tensor):
 
 
 def test_sub_grad(two_d_tensor):
-    right = Tensor(cp.copy(two_d_tensor.value + 5))
+    right = Tensor(cp.copy(two_d_tensor.value + 5), frozen=False)
 
     def left_loss_func(x):
         return (x - right).sum()
@@ -196,7 +196,7 @@ def test_sub_grad(two_d_tensor):
 
 
 def test_mult_grad(two_d_tensor):
-    right = Tensor(cp.copy(two_d_tensor.value + 2))
+    right = Tensor(cp.copy(two_d_tensor.value + 2), frozen=False)
 
     def left_loss_func(x):
         return (x * right).sum()
@@ -209,7 +209,7 @@ def test_mult_grad(two_d_tensor):
 
 
 def test_matmul_grad(two_d_tensor):
-    right = Tensor(cp.copy(two_d_tensor.value + 1))
+    right = Tensor(cp.copy(two_d_tensor.value + 1), frozen=False)
 
     def left_loss_func(x):
         return (x @ right).sum()
@@ -222,8 +222,12 @@ def test_matmul_grad(two_d_tensor):
 
 
 def test_div_grad():
-    numerator = Tensor(cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 3)))
-    denominator = Tensor(cp.array([0.1, 0.2, 0.3], dtype=cp.float32).reshape((1, 3)))
+    numerator = Tensor(
+        cp.array([0.2, 0.4, 0.1], dtype=cp.float32).reshape((1, 3)), frozen=False
+    )
+    denominator = Tensor(
+        cp.array([0.1, 0.2, 0.3], dtype=cp.float32).reshape((1, 3)), frozen=False
+    )
 
     def num_loss_func(x):
         return (x / denominator).sum()
@@ -273,6 +277,7 @@ def test_var_grad(two_d_tensor):
 def test_sqrt_grad(two_d_tensor):
     # can't have negatives in here
     two_d_tensor = two_d_tensor * two_d_tensor
+    two_d_tensor.frozen = False
 
     def loss_func(x):
         return x.sqrt().mean()
@@ -301,3 +306,27 @@ def test_transpose_last_grad(two_d_tensor):
         return transposed.cumsum(axis=-1).mean()
 
     evaluate_empirical_grad(two_d_tensor, loss_func)
+
+
+def build_compute_grad(self):
+    a = Tensor(cp.array([1], dtype=cp.float32))
+    b = Tensor(cp.array([1], dtype=cp.float32))
+    c = a + b
+    d = c * c
+    e = c + d
+
+    # our graph is of gradient flow, so the final tensor is the root
+    expected_children = {
+        a: set(),
+        b: set(),
+        c: set([a, b]),
+        d: set([c]),
+        e: set([c, d]),
+    }
+
+    actual = e.build_compute_graph()
+
+    assert len(actual) == len(expected_children)
+    for t, children in expected_children.items():
+        actual_children = actual[t]
+        assert actual_children == children

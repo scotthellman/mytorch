@@ -14,5 +14,7 @@ def evaluate_empirical_grad(tensor, loss_func, eps=1e-3):
             empirical_grad = (right_loss.value - left_loss.value) / (2 * eps)
             computed_grad = tensor.grad[i, j]
             # working with float32, so we can't be too particular about tolerances here
+            print(empirical_grad.ravel()[:5])
+            print(computed_grad.ravel()[:5])
             assert cp.allclose(empirical_grad, computed_grad, rtol=1e-3, atol=1e-2)
             tensor.value[i, j] = old_val
