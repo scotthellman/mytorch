@@ -44,8 +44,8 @@ class Trie:
                 best_index = i + 1
         return current_val, key[best_index:]
 
-    def tokenize(self, key: bytes, missing_value: int = -2) -> list[int]:
-        pbar = tqdm(total=len(key))
+    def tokenize(self, key: bytes, missing_value: int = -2, pbar_pos=None) -> list[int]:
+        pbar = tqdm(total=len(key), position=pbar_pos, leave=False)
         current_length = len(key)
         index, leftover = self.traversal_value_iterative(key)
         delta = current_length - len(leftover)

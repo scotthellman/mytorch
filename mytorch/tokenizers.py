@@ -183,10 +183,10 @@ class BPE:
                     data.count = -data.count * word_count
                     heap.insert_token(data)
 
-    def tokenize(self, text: bytes) -> list[int]:
+    def tokenize(self, text: bytes, pbar_pos=None) -> list[int]:
         if self.trie is None:
             raise ValueError("Tokenizer must be fit to text before use")
-        return self.trie.tokenize(text)
+        return self.trie.tokenize(text, pbar_pos=pbar_pos)
 
     def untokenize(self, toks: list[int]) -> bytes:
         if self.index_lookup is None:
