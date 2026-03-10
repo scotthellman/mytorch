@@ -1,5 +1,4 @@
 import cupy as cp
-import numpy as np
 
 from mytorch import kernels
 from mytorch.tensor import Tensor
@@ -48,11 +47,11 @@ class Adam:
         self.tensors = new_tensors
 
     def step(self):
-        self.t += 1
         normalizer = 1.0
         lr_adjustment = 1
         if self.t < self.warmup_steps:
             lr_adjustment = (self.t + 1) / (self.warmup_steps + 1)
+        self.t += 1
         if self.clip:
             seen = set()
             squared_sum = 0
@@ -61,7 +60,7 @@ class Adam:
                     if tensor not in seen:
                         squared_sum += (tensor.grad**2).sum()
                         seen.add(tensor)
-            rss = np.sqrt(squared_sum)
+            rss = cp.sqrt(squared_sum)
             if rss > self.clip:
                 normalizer = self.clip / rss
                 if cp.any(cp.isnan(normalizer)):
@@ -69,6 +68,7 @@ class Adam:
             squared_sum = 0
         seen = set()
         for tensors, lr, decay in self.tensors:
+            # FIXME: I dropped handling the decay when I built the fused kernel
             adjusted_lr = lr * lr_adjustment
             for tensor in tensors:
                 if tensor.frozen or tensor in seen:
