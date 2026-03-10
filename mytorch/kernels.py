@@ -22,6 +22,24 @@ void add_kernel(const float* a, const float* b, float* out, int n) {
 """
 add_kernel = cp.RawKernel(add_code, "add_kernel")
 
+
+def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
+    broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
+    result = cp.empty(broadcast_shape, dtype=cp.float32)
+    a = broadcast_if_needed(a, broadcast_shape)
+    b = broadcast_if_needed(b, broadcast_shape)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    add_kernel(
+        grid_size,
+        block_size,
+        (a, b, result, n),
+    )
+
+    return result
+
+
 sub_code = r"""
 extern "C" __global__
 void sub_kernel(const float* a, const float* b, float* out, int n) {
@@ -34,6 +52,24 @@ void sub_kernel(const float* a, const float* b, float* out, int n) {
 }
 """
 sub_kernel = cp.RawKernel(sub_code, "sub_kernel")
+
+
+def sub(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
+    broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
+    result = cp.empty(broadcast_shape, dtype=cp.float32)
+    a = broadcast_if_needed(a, broadcast_shape)
+    b = broadcast_if_needed(b, broadcast_shape)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    sub_kernel(
+        grid_size,
+        block_size,
+        (a, b, result, n),
+    )
+
+    return result
+
 
 neg_code = r"""
 extern "C" __global__
@@ -48,6 +84,21 @@ void neg_kernel(const float* a, float* out, int n) {
 """
 neg_kernel = cp.RawKernel(neg_code, "neg_kernel")
 
+
+def neg(a: cp.ndarray) -> cp.ndarray:
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    neg_kernel(
+        grid_size,
+        block_size,
+        (a, result, n),
+    )
+    return result
+
+
 mul_code = r"""
 extern "C" __global__
 void mul_kernel(const float* a, const float* b, float* out, int n) {
@@ -60,6 +111,24 @@ void mul_kernel(const float* a, const float* b, float* out, int n) {
 }
 """
 mul_kernel = cp.RawKernel(mul_code, "mul_kernel")
+
+
+def mul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
+    broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
+    result = cp.empty(broadcast_shape, dtype=cp.float32)
+    a = broadcast_if_needed(a, broadcast_shape)
+    b = broadcast_if_needed(b, broadcast_shape)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    mul_kernel(
+        grid_size,
+        block_size,
+        (a, b, result, n),
+    )
+
+    return result
+
 
 mul_and_add_code = r"""
 extern "C" __global__
@@ -74,6 +143,27 @@ void mul_and_add_kernel(const float* a, const float* mul_term, const float* add_
 """
 mul_and_add_kernel = cp.RawKernel(mul_and_add_code, "mul_and_add_kernel")
 
+
+def mul_and_add(
+    a: cp.ndarray, mul_term: cp.ndarray, add_term: cp.ndarray
+) -> cp.ndarray:
+    broadcast_shape = cp.broadcast_shapes(a.shape, mul_term.shape, add_term.shape)
+    result = cp.empty(broadcast_shape, dtype=cp.float32)
+    a = broadcast_if_needed(a, broadcast_shape)
+    mul_term = broadcast_if_needed(mul_term, broadcast_shape)
+    add_term = broadcast_if_needed(add_term, broadcast_shape)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    mul_and_add_kernel(
+        grid_size,
+        block_size,
+        (a, mul_term, add_term, result, n),
+    )
+
+    return result
+
+
 div_code = r"""
 extern "C" __global__
 void div_kernel(const float* a, const float* b, float* out, int n) {
@@ -87,6 +177,24 @@ void div_kernel(const float* a, const float* b, float* out, int n) {
 """
 div_kernel = cp.RawKernel(div_code, "div_kernel")
 
+
+def div(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
+    broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
+    result = cp.empty(broadcast_shape, dtype=cp.float32)
+    a = broadcast_if_needed(a, broadcast_shape)
+    b = broadcast_if_needed(b, broadcast_shape)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    div_kernel(
+        grid_size,
+        block_size,
+        (a, b, result, n),
+    )
+
+    return result
+
+
 div_local_grad_code = r"""
 extern "C" __global__
 void div_local_grad_kernel(const float* path, const float* num, const float* den, float* out, int n) {
@@ -99,6 +207,31 @@ void div_local_grad_kernel(const float* path, const float* num, const float* den
 }
 """
 div_local_grad_kernel = cp.RawKernel(div_local_grad_code, "div_local_grad_kernel")
+
+
+def div_local_grad(path: cp.ndarray, num: cp.ndarray, den: cp.ndarray) -> cp.ndarray:
+    broadcast_shape = cp.broadcast_shapes(path.shape, num.shape, den.shape)
+    result = cp.empty(broadcast_shape, dtype=cp.float32)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    path = broadcast_if_needed(path, broadcast_shape)
+    num = broadcast_if_needed(num, broadcast_shape)
+    den = broadcast_if_needed(den, broadcast_shape)
+    div_local_grad_kernel(
+        grid_size,
+        block_size,
+        (
+            path,
+            num,
+            den,
+            result,
+            n,
+        ),
+    )
+
+    return result
+
 
 matmul_code = r"""
 extern "C" __global__
@@ -207,35 +340,48 @@ void matmul(int m, int k, int n, int batches, const float* A, const float* B, fl
 
 matmul_kernel = cp.RawKernel(matmul_code, "matmul")
 
-low_k_matmul_code = r"""
-extern "C" __global__
-void matmul(int m, int n, int p, int outer_loop, const float* A, const float* B, float* C) {
-    // This is a naive matmul, but it works well for matrices with a very small inner dimension
-    const int x = blockIdx.x * blockDim.x + threadIdx.x;
-    const int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-    // total number of threads in x
-    const int x_stride = blockDim.x*gridDim.x;
-    const int y_stride = blockDim.y*gridDim.y;
+def matmul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
+    assert a.shape[-1] == b.shape[-2]
+    kernel = matmul_kernel
+    # there's a footgun here: the x dimension of the grid
+    # is handling columns, so we need to pull the shapes from
+    # the "wrong" dimensions
+    grid_size = (
+        math.ceil(b.shape[-1] / (BLOCKSIZE * THREAD_WINDOW)),
+        math.ceil(a.shape[-2] / (BLOCKSIZE * THREAD_WINDOW)),
+    )
+    a_batch = a.shape[:-2]
+    b_batch = b.shape[:-2]
+    broadcast_shape = cp.broadcast_shapes(a_batch, b_batch)
 
-    for(int batch = 0; batch < outer_loop; batch += 1){
-        const int batch_offset_A = batch * m * n;
-        const int batch_offset_B = batch * p * n;
-        const int batch_offset_C = batch * m * p;
-        for(int i = x; i <m; i += x_stride){
-            for(int j = y; j<p; j += y_stride){
-                // dot the xth row of A with the yth col of B
-                float acc = 0.0;
-                for(int k = 0; k < n; k++){
-                    acc += A[batch_offset_A + k + i*n] * B[batch_offset_B + k*p + j];
-                }
-                C[batch_offset_C + i*p + j] = acc;
-            }
-        }
-    }
-}
-"""
-low_k_matmul_kernel = cp.RawKernel(low_k_matmul_code, "matmul")
+    # FIXME: we really don't want these copies, but that'll
+    # make the kernel a lot more complex
+    # bandaid fix for now: only copy if we really have to
+    a = broadcast_if_needed(a, broadcast_shape + a.shape[-2:])
+    b = broadcast_if_needed(b, broadcast_shape + b.shape[-2:])
+    result = cp.empty(broadcast_shape + (a.shape[-2], b.shape[-1]), dtype=cp.float32)
+    num_batches = 1
+    for d in broadcast_shape:
+        num_batches *= d
+
+    block_size = (BLOCKSIZE, BLOCKSIZE)
+    kernel(
+        grid_size,
+        block_size,
+        (
+            a.shape[-2],
+            a.shape[-1],
+            b.shape[-1],
+            num_batches,
+            a,
+            b,
+            result,
+        ),
+    )
+
+    return result
+
 
 exp_code = r"""
 extern "C" __global__
@@ -250,6 +396,22 @@ void exp_kernel(const float* a, float* out, int n) {
 """
 exp_kernel = cp.RawKernel(exp_code, "exp_kernel")
 
+
+def exp(a: cp.ndarray) -> cp.ndarray:
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    exp_kernel(
+        grid_size,
+        block_size,
+        (a, result, n),
+    )
+
+    return result
+
+
 logistic_code = r"""
 extern "C" __global__
 void logistic_kernel(const float* a, float* out, int n) {
@@ -262,6 +424,21 @@ void logistic_kernel(const float* a, float* out, int n) {
 }
 """
 logistic_kernel = cp.RawKernel(logistic_code, "logistic_kernel")
+
+
+def logistic(a: cp.ndarray) -> cp.ndarray:
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    logistic_kernel(
+        grid_size,
+        block_size,
+        (a, result, n),
+    )
+    return result
+
 
 sqrt_code = r"""
 extern "C" __global__
@@ -276,7 +453,22 @@ void sqrt_kernel(const float* a, float* out, int n) {
 """
 sqrt_kernel = cp.RawKernel(sqrt_code, "sqrt_kernel")
 
-# TODO: it's probably better to split up the max and ce computations
+
+def sqrt(a: cp.ndarray) -> cp.ndarray:
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    sqrt_kernel(
+        grid_size,
+        block_size,
+        (a, result, n),
+    )
+
+    return result
+
+
 cross_entropy_code = r"""
 extern "C" __global__
 void cross_entropy_kernel(const float* a, const int* target, float* out, float* grad_out, const int emb, const int batch) {
@@ -319,6 +511,26 @@ void cross_entropy_kernel(const float* a, const int* target, float* out, float* 
 """
 cross_entropy_kernel = cp.RawKernel(cross_entropy_code, "cross_entropy_kernel")
 
+
+def cross_entropy(a: cp.ndarray, targets: cp.ndarray) -> cp.ndarray:
+    # For now I should be in very direct control of what's passed in here,
+    # so i'm ignoring broadcasting
+    result_shape = targets.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    grad_result = cp.empty(a.shape, dtype=cp.float32)
+    # we want the grid to cover all of targets
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(n / block_size[0]),)
+    cross_entropy_kernel(
+        grid_size,
+        block_size,
+        (a, targets, result, grad_result, a.shape[-1], n),
+    )
+
+    return result, grad_result
+
+
 # having each thread deal with one whole layer seems like a good balance of easy and fast
 layernorm_code = r"""
 extern "C" __global__
@@ -355,6 +567,34 @@ void layernorm_kernel(const float* a, float* out, float* inv_vars, float* norms,
 """
 layernorm_kernel = cp.RawKernel(layernorm_code, "layernorm_kernel")
 
+
+def layernorm(a: cp.ndarray, eps: float = 1e-6) -> cp.ndarray:
+    # Hard assumption here that we are operating on the last dimension
+    # TODO: probably want the affine transformation part of this too
+    emb_size = a.shape[-1]
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    # TODO: storing norms is a big memory hog, but simplifies the back kernel. Maybe change that
+    norms = cp.empty(result_shape, dtype=cp.float32)
+    inv_vars = cp.empty(result_shape[:-1], dtype=cp.float32)
+    # we want the grid to cover all of targets
+    n = result.size
+    block_size = (512,)
+    grid_size = (
+        math.ceil(
+            n / (emb_size * block_size[0]),
+        ),
+    )
+    layernorm_kernel(
+        grid_size,
+        block_size,
+        (a, result, inv_vars, norms, a.shape[-1], n, np.float32(eps)),
+    )
+
+    grad_data = (inv_vars, norms)
+    return result, grad_data
+
+
 # https://github.com/karpathy/llm.c/blob/master/doc/layernorm/layernorm.md
 layernorm_back_code = r"""
 extern "C" __global__
@@ -390,6 +630,28 @@ void layernorm_back_kernel(const float* a, const float* inv_vars, const float* n
 layernorm_back_kernel = cp.RawKernel(layernorm_back_code, "layernorm_back_kernel")
 
 
+def layernorm_back(
+    a: cp.ndarray, inv_vars: cp.ndarray, norms: cp.ndarray
+) -> cp.ndarray:
+    emb_size = a.shape[-1]
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    # we want the grid to cover all of targets
+    n = result.size
+    block_size = (512,)
+    grid_size = (
+        math.ceil(
+            n / (emb_size * block_size[0]),
+        ),
+    )
+    layernorm_back_kernel(
+        grid_size,
+        block_size,
+        (a, inv_vars, norms, result, a.shape[-1], n),
+    )
+    return result
+
+
 rope_code = r"""
 extern "C" __global__
 void rope_kernel(const float* a, float* out, int emb_size, int seq_size, int batch_size, bool backward) {
@@ -419,6 +681,38 @@ void rope_kernel(const float* a, float* out, int emb_size, int seq_size, int bat
 """
 rope_kernel = cp.RawKernel(rope_code, "rope_kernel")
 
+
+def rope(a: cp.ndarray, backward: bool = False) -> cp.ndarray:
+    emb_size = a.shape[-1]
+    seq_size = a.shape[-2]
+    batch_size = 1
+    for s in a.shape[:-2]:
+        batch_size *= s
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    # we want the grid to cover all of targets
+    # x is emb, y is seq, z is batch
+    block_size = (32, 4, 2)
+    grid_size = (
+        math.ceil(
+            emb_size / block_size[0],
+        ),
+        math.ceil(
+            seq_size / block_size[1],
+        ),
+        math.ceil(
+            batch_size / block_size[2],
+        ),
+    )
+    rope_kernel(
+        grid_size,
+        block_size,
+        (a, result, emb_size, seq_size, batch_size, backward),
+    )
+
+    return result
+
+
 elu_code = r"""
 extern "C" __global__
 void elu_kernel(const float* a, float* out, const int added, const int n) {
@@ -436,6 +730,22 @@ void elu_kernel(const float* a, float* out, const int added, const int n) {
 """
 elu_kernel = cp.RawKernel(elu_code, "elu_kernel")
 
+
+def elu(a: cp.ndarray, added: int = 0) -> cp.ndarray:
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(result.size / block_size[0]),)
+    elu_kernel(
+        grid_size,
+        block_size,
+        (a, result, added, n),
+    )
+
+    return result
+
+
 elu_back_code = r"""
 extern "C" __global__
 void elu_back_kernel(const float* elu_output, float* grad, float* out, const int added, const int n) {
@@ -449,6 +759,22 @@ void elu_back_kernel(const float* elu_output, float* grad, float* out, const int
 }
 """
 elu_back_kernel = cp.RawKernel(elu_back_code, "elu_back_kernel")
+
+
+def elu_back(a: cp.ndarray, grad: cp.ndarray, added: int = 0) -> cp.ndarray:
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    n = grad.size
+    block_size = (512,)
+    grid_size = (math.ceil(grad.size / block_size[0]),)
+    elu_back_kernel(
+        grid_size,
+        block_size,
+        (a, grad, result, added, n),
+    )
+
+    return result
+
 
 adam_update_code = r"""
 extern "C" __global__
@@ -508,246 +834,6 @@ def adam_update(
     )
 
 
-def add(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
-    broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
-    result = cp.empty(broadcast_shape, dtype=cp.float32)
-    a = broadcast_if_needed(a, broadcast_shape)
-    b = broadcast_if_needed(b, broadcast_shape)
-    n = result.size
-    block_size = (512,)
-    grid_size = (math.ceil(result.size / block_size[0]),)
-    add_kernel(
-        grid_size,
-        block_size,
-        (a, b, result, n),
-    )
-
-    return result
-
-
-def sub(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
-    broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
-    result = cp.empty(broadcast_shape, dtype=cp.float32)
-    a = broadcast_if_needed(a, broadcast_shape)
-    b = broadcast_if_needed(b, broadcast_shape)
-    n = result.size
-    block_size = (512,)
-    grid_size = (math.ceil(result.size / block_size[0]),)
-    sub_kernel(
-        grid_size,
-        block_size,
-        (a, b, result, n),
-    )
-
-    return result
-
-
-def mul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
-    broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
-    result = cp.empty(broadcast_shape, dtype=cp.float32)
-    a = broadcast_if_needed(a, broadcast_shape)
-    b = broadcast_if_needed(b, broadcast_shape)
-    n = result.size
-    block_size = (512,)
-    grid_size = (math.ceil(result.size / block_size[0]),)
-    mul_kernel(
-        grid_size,
-        block_size,
-        (a, b, result, n),
-    )
-
-    return result
-
-
-def mul_and_add(
-    a: cp.ndarray, mul_term: cp.ndarray, add_term: cp.ndarray
-) -> cp.ndarray:
-    broadcast_shape = cp.broadcast_shapes(a.shape, mul_term.shape, add_term.shape)
-    result = cp.empty(broadcast_shape, dtype=cp.float32)
-    a = broadcast_if_needed(a, broadcast_shape)
-    mul_term = broadcast_if_needed(mul_term, broadcast_shape)
-    add_term = broadcast_if_needed(add_term, broadcast_shape)
-    n = result.size
-    block_size = (512,)
-    grid_size = (math.ceil(result.size / block_size[0]),)
-    mul_and_add_kernel(
-        grid_size,
-        block_size,
-        (a, mul_term, add_term, result, n),
-    )
-
-    return result
-
-
-def div(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
-    broadcast_shape = cp.broadcast_shapes(a.shape, b.shape)
-    result = cp.empty(broadcast_shape, dtype=cp.float32)
-    a = broadcast_if_needed(a, broadcast_shape)
-    b = broadcast_if_needed(b, broadcast_shape)
-    n = result.size
-    block_size = (512,)
-    grid_size = (math.ceil(result.size / block_size[0]),)
-    div_kernel(
-        grid_size,
-        block_size,
-        (a, b, result, n),
-    )
-
-    return result
-
-
-def div_local_grad(path: cp.ndarray, num: cp.ndarray, den: cp.ndarray) -> cp.ndarray:
-    broadcast_shape = cp.broadcast_shapes(path.shape, num.shape, den.shape)
-    result = cp.empty(broadcast_shape, dtype=cp.float32)
-    n = result.size
-    block_size = (512,)
-    grid_size = (math.ceil(result.size / block_size[0]),)
-    path = broadcast_if_needed(path, broadcast_shape)
-    num = broadcast_if_needed(num, broadcast_shape)
-    den = broadcast_if_needed(den, broadcast_shape)
-    div_local_grad_kernel(
-        grid_size,
-        block_size,
-        (
-            path,
-            num,
-            den,
-            result,
-            n,
-        ),
-    )
-
-    return result
-
-
-def neg(a: cp.ndarray) -> cp.ndarray:
-    result_shape = a.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
-    n = result.size
-    block_size = (512,)
-    grid_size = (math.ceil(result.size / block_size[0]),)
-    neg_kernel(
-        grid_size,
-        block_size,
-        (a, result, n),
-    )
-    return result
-
-
-def exp(a: cp.ndarray) -> cp.ndarray:
-    result_shape = a.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
-    n = result.size
-    block_size = (512,)
-    grid_size = (math.ceil(result.size / block_size[0]),)
-    exp_kernel(
-        grid_size,
-        block_size,
-        (a, result, n),
-    )
-
-    return result
-
-
-def logistic(a: cp.ndarray) -> cp.ndarray:
-    result_shape = a.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
-    n = result.size
-    block_size = (512,)
-    grid_size = (math.ceil(result.size / block_size[0]),)
-    logistic_kernel(
-        grid_size,
-        block_size,
-        (a, result, n),
-    )
-    return result
-
-
-def sqrt(a: cp.ndarray) -> cp.ndarray:
-    result_shape = a.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
-    n = result.size
-    block_size = (512,)
-    grid_size = (math.ceil(result.size / block_size[0]),)
-    sqrt_kernel(
-        grid_size,
-        block_size,
-        (a, result, n),
-    )
-
-    return result
-
-
-def cross_entropy(a: cp.ndarray, targets: cp.ndarray) -> cp.ndarray:
-    # For now I should be in very direct control of what's passed in here,
-    # so i'm ignoring broadcasting
-    result_shape = targets.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
-    grad_result = cp.empty(a.shape, dtype=cp.float32)
-    # we want the grid to cover all of targets
-    n = result.size
-    block_size = (512,)
-    grid_size = (math.ceil(n / block_size[0]),)
-    cross_entropy_kernel(
-        grid_size,
-        block_size,
-        (a, targets, result, grad_result, a.shape[-1], n),
-    )
-
-    return result, grad_result
-
-
-def matmul(a: cp.ndarray, b: cp.ndarray) -> cp.ndarray:
-    assert a.shape[-1] == b.shape[-2]
-    # FIXME: tune this, there probably is some level at which the simpler one is faster
-    use_simple_kernel = False
-    if use_simple_kernel:
-        kernel = low_k_matmul_kernel
-        grid_size = (
-            math.ceil(a.shape[-2] / (BLOCKSIZE)),
-            math.ceil(b.shape[-1] / (BLOCKSIZE)),
-        )
-    else:
-        kernel = matmul_kernel
-        # there's a footgun here: the x dimension of the grid
-        # is handling columns, so we need to pull the shapes from
-        # the "wrong" dimensions
-        grid_size = (
-            math.ceil(b.shape[-1] / (BLOCKSIZE * THREAD_WINDOW)),
-            math.ceil(a.shape[-2] / (BLOCKSIZE * THREAD_WINDOW)),
-        )
-    a_batch = a.shape[:-2]
-    b_batch = b.shape[:-2]
-    broadcast_shape = cp.broadcast_shapes(a_batch, b_batch)
-
-    # FIXME: we really don't want these copies, but that'll
-    # make the kernel a lot more complex
-    # bandaid fix for now: only copy if we really have to
-    a = broadcast_if_needed(a, broadcast_shape + a.shape[-2:])
-    b = broadcast_if_needed(b, broadcast_shape + b.shape[-2:])
-    result = cp.empty(broadcast_shape + (a.shape[-2], b.shape[-1]), dtype=cp.float32)
-    num_batches = 1
-    for d in broadcast_shape:
-        num_batches *= d
-
-    block_size = (BLOCKSIZE, BLOCKSIZE)
-    kernel(
-        grid_size,
-        block_size,
-        (
-            a.shape[-2],
-            a.shape[-1],
-            b.shape[-1],
-            num_batches,
-            a,
-            b,
-            result,
-        ),
-    )
-
-    return result
-
-
 def broadcast_if_needed(a: cp.ndarray, broadcast_shape: tuple[int]) -> cp.ndarray:
     # TODO: in the long run, we'd prefer not to copy at all. But that will
     # (seemingly) complicate the kernels considerably - they'd need to be
@@ -755,113 +841,3 @@ def broadcast_if_needed(a: cp.ndarray, broadcast_shape: tuple[int]) -> cp.ndarra
     if a.shape == broadcast_shape:
         return a
     return cp.broadcast_to(a, broadcast_shape).copy()
-
-
-def layernorm(a: cp.ndarray, eps: float = 1e-6) -> cp.ndarray:
-    # Hard assumption here that we are operating on the last dimension
-    # TODO: probably want the affine transformation part of this too
-    emb_size = a.shape[-1]
-    result_shape = a.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
-    # TODO: storing norms is a big memory hog, but simplifies the back kernel. Maybe change that
-    norms = cp.empty(result_shape, dtype=cp.float32)
-    inv_vars = cp.empty(result_shape[:-1], dtype=cp.float32)
-    # we want the grid to cover all of targets
-    n = result.size
-    block_size = (512,)
-    grid_size = (
-        math.ceil(
-            n / (emb_size * block_size[0]),
-        ),
-    )
-    layernorm_kernel(
-        grid_size,
-        block_size,
-        (a, result, inv_vars, norms, a.shape[-1], n, np.float32(eps)),
-    )
-
-    grad_data = (inv_vars, norms)
-    return result, grad_data
-
-
-def layernorm_back(
-    a: cp.ndarray, inv_vars: cp.ndarray, norms: cp.ndarray
-) -> cp.ndarray:
-    emb_size = a.shape[-1]
-    result_shape = a.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
-    # we want the grid to cover all of targets
-    n = result.size
-    block_size = (512,)
-    grid_size = (
-        math.ceil(
-            n / (emb_size * block_size[0]),
-        ),
-    )
-    layernorm_back_kernel(
-        grid_size,
-        block_size,
-        (a, inv_vars, norms, result, a.shape[-1], n),
-    )
-    return result
-
-
-def rope(a: cp.ndarray, backward: bool = False) -> cp.ndarray:
-    emb_size = a.shape[-1]
-    seq_size = a.shape[-2]
-    batch_size = 1
-    for s in a.shape[:-2]:
-        batch_size *= s
-    result_shape = a.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
-    # we want the grid to cover all of targets
-    # x is emb, y is seq, z is batch
-    block_size = (32, 4, 2)
-    grid_size = (
-        math.ceil(
-            emb_size / block_size[0],
-        ),
-        math.ceil(
-            seq_size / block_size[1],
-        ),
-        math.ceil(
-            batch_size / block_size[2],
-        ),
-    )
-    rope_kernel(
-        grid_size,
-        block_size,
-        (a, result, emb_size, seq_size, batch_size, backward),
-    )
-
-    return result
-
-
-def elu(a: cp.ndarray, added: int = 0) -> cp.ndarray:
-    result_shape = a.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
-    n = result.size
-    block_size = (512,)
-    grid_size = (math.ceil(result.size / block_size[0]),)
-    elu_kernel(
-        grid_size,
-        block_size,
-        (a, result, added, n),
-    )
-
-    return result
-
-
-def elu_back(a: cp.ndarray, grad: cp.ndarray, added: int = 0) -> cp.ndarray:
-    result_shape = a.shape
-    result = cp.empty(result_shape, dtype=cp.float32)
-    n = grad.size
-    block_size = (512,)
-    grid_size = (math.ceil(grad.size / block_size[0]),)
-    elu_back_kernel(
-        grid_size,
-        block_size,
-        (a, grad, result, added, n),
-    )
-
-    return result
