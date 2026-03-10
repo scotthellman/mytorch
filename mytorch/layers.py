@@ -293,23 +293,31 @@ class SelfAttention:
 
 
 class TransformerLayer:
-    def __init__(self, embedding_size, n_heads=1):
+    def __init__(self, embedding_size, n_heads=1, expansion_factor=1):
         self.attention = SelfAttention(embedding_size, n_heads)
         self.attention_norm = LayerNorm((embedding_size,))
-        self.linear = Linear(embedding_size, embedding_size, True)
+        self.linear_expand = Linear(
+            embedding_size, embedding_size * expansion_factor, True
+        )
         self.linear_activation = Elu()
+        self.linear_contract = Linear(
+            embedding_size * expansion_factor, embedding_size, True
+        )
         self.linear_norm = LayerNorm((embedding_size,))
 
         self.params = []
         self.params.extend(self.attention.params)
         self.params.extend(self.attention_norm.params)
-        self.params.extend(self.linear.params)
+        self.params.extend(self.linear_expand.params)
+        self.params.extend(self.linear_contract.params)
         self.params.extend(self.linear_norm.params)
 
     def forward(self, tensor: Tensor) -> Tensor:
         attended = self.attention.forward(tensor)
         interim = self.attention_norm.forward(attended + tensor)
-        processed = self.linear_activation.forward(self.linear.forward(interim))
+        processed = self.linear_contract.forward(
+            self.linear_activation.forward(self.linear_expand.forward(interim))
+        )
         return self.linear_norm.forward(processed + interim)
 
 
