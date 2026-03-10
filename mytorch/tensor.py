@@ -24,10 +24,6 @@ class Tensor:
         self.grad = cp.zeros_like(self.value)
 
     def compute_gradient(self):
-
-        # import networkx as nx
-
-        # G = nx.DiGraph()
         visit_order = self.toposort()
         path_gradients = {self: cp.ones(self.value.shape, dtype=cp.float32)}
         for current_variable in visit_order:
@@ -43,10 +39,6 @@ class Tensor:
                     path_gradients[child] += child_value
             # free up that memory
             del path_gradients[current_variable]
-        # nx.nx_pydot.write_dot(G, "graph.dot")
-        # graph = nx.drawing.nx_pydot.to_pydot(G)
-        # graph.write_png("output.png")
-        # 1 / 0
 
     def build_compute_graph(self) -> dict["Tensor", set["Tensor"]]:
         children: dict[Tensor, set[Tensor]] = {}
@@ -259,7 +251,7 @@ class Tensor:
         self, axis: int | None = None, keepdims: bool = False, constant_term: float = 0
     ) -> Tensor:
         # FIXME: need to do this myself
-        result = cp.sum(self.value, axis=axis, keepdims=keepdims) + constant_term
+        result = cp.sum(self.value, axis=axis, keepdims=keepdims).copy() + constant_term
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
             grad = acc * cp.ones_like(self.value)
@@ -311,10 +303,12 @@ class Tensor:
 
     def cumsum(self, axis: int) -> Tensor:
         # FIXME: need to do this myself
-        result = cp.cumsum(self.value, axis=axis)
+        result = cp.cumsum(self.value, axis=axis).copy()
 
         def local_grad_self_cumsum(acc: cp.ndarray) -> cp.ndarray:
-            return cp.flip(cp.cumsum(cp.flip(acc, axis=axis), axis=axis), axis=axis)
+            return cp.flip(
+                cp.cumsum(cp.flip(acc, axis=axis), axis=axis), axis=axis
+            ).copy()
 
         operations = [(self, "cumsum", local_grad_self_cumsum)]
 
