@@ -1,4 +1,4 @@
-from mytorch.tokenizers import BPE, NaiveBPE
+from mytorch.tokenizers.tokenizers import BPE, NaiveBPE
 
 
 def test_naive_tokenizer():

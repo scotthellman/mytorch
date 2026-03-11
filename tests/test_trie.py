@@ -1,4 +1,4 @@
-from mytorch.trie import Trie
+from mytorch.tokenizers.trie import Trie
 
 
 def test_trie():

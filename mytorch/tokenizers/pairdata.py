@@ -11,8 +11,6 @@ import heapq
 from dataclasses import dataclass
 from functools import total_ordering
 
-heapq
-
 
 @dataclass
 class TokenData:

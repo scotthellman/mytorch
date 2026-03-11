@@ -1,7 +1,7 @@
 from collections import Counter
 from dataclasses import dataclass
 
-from mytorch.pairdata import TokenData
+from mytorch.tokenizers.pairdata import TokenData
 
 
 @dataclass
@@ -27,6 +27,15 @@ class UpdateInfo:
 
 
 class LinkedArray:
+    """A linked list that also allows for random access.
+
+    For the specific use-case of learning a BPE vocabulary, we do not need
+    to support inserting new entries, only merging existing entries. This means
+    that we can initialize as a list that contains linked list nodes (ArrayNodes)
+    and then as we merge, we merge the two values into the left hand side and
+    null out the right hand side.
+    """
+
     def __init__(self, initial_values: bytes):
         self.array = []
         previous = None
@@ -66,6 +75,7 @@ class LinkedArray:
     def merge_all(
         self, indices: list[int], word_index: int
     ) -> tuple[list[TokenData], Counter[bytes]]:
+        # TODO: I have to imagine this could all be written in a cleaner way
         new_pair_counts = {}
         stale_counts = Counter()
         frontier_index = -1

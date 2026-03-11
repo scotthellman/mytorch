@@ -54,7 +54,7 @@ def test_layer_norm():
 
 
 def test_self_attention_grad():
-    layer = layers.SelfAttention(4, 1)
+    layer = layers.SelfAttention(4, 2)
     tensor = Tensor(cp.array([0.2, 0.4, 0.1, 0.0], dtype=cp.float32).reshape((1, 1, 4)))
     layer.forward(tensor)
 
@@ -63,6 +63,19 @@ def test_self_attention_grad():
         return result
 
     evaluate_empirical_grad(layer.weights, loss_func)
+
+
+def test_transformer_layer_grad():
+    layer = layers.TransformerLayer(4, 2)
+    tensor = Tensor(cp.array([0.2, 0.4, 0.1, 0.0], dtype=cp.float32).reshape((1, 1, 4)))
+    layer.forward(tensor)
+
+    def loss_func(x):
+        result = layer.forward(tensor).sum()
+        return result
+
+    for param in layer.params:
+        evaluate_empirical_grad(param, loss_func)
 
 
 def test_linear_grad(two_d_tensor):

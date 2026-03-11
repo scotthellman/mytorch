@@ -321,18 +321,10 @@ class TransformerLayer:
         return self.linear_norm.forward(processed + interim)
 
 
-# FIXME: not really a layer. Need to fix my organization
+# TODO: not really a layer. Need to fix my organization
 class CrossEntropyLoss:
     def forward(self, input: Tensor, target: Tensor) -> Tensor:
         # This is not fully general - I'm only worrying about the case where the targets are not probas
-        # at which point, this is essentially the lot of the softmax of the relevant index
-        # we have to be a little fancy here to avoid numerical issues
-        # can't just compute softmax and then log it
-        # What shapes are at play here? input: (b, s, e). target: (b, s)
-        # Target essentially selects what e-index we are computing softmax wrt to for that b,s
-        # Then for each b,s, we compute log(softmax(x_target)). Define c = max(x[b,s]).
-        # Then, with some trickery, our loss is:
-        # x_target - c - log(sum(e^x_i-c))
         loss, grad_info = kernels.cross_entropy(input.value, target.value)
 
         # go ahead and assume we want to sum this
@@ -343,5 +335,4 @@ class CrossEntropyLoss:
         def local_grad(acc: cp.ndarray) -> cp.ndarray:
             return acc * grad_info / n
 
-        # TODO: well this is a little clunky
         return Tensor(value=loss, operations=[(input, "CrossEntropy", local_grad)])

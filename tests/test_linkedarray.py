@@ -1,4 +1,4 @@
-from mytorch.linkedarray import LinkedArray
+from mytorch.tokenizers.linkedarray import LinkedArray
 
 
 def test_linked_array():

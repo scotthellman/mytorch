@@ -1,8 +1,8 @@
 from collections import Counter
 
-from mytorch.linkedarray import LinkedArray
-from mytorch.pairdata import TokenData, TokenHeap
-from mytorch.trie import Trie
+from mytorch.tokenizers.linkedarray import LinkedArray
+from mytorch.tokenizers.pairdata import TokenData, TokenHeap
+from mytorch.tokenizers.trie import Trie
 
 
 class NaiveBPE:
@@ -107,10 +107,6 @@ class BPE:
         heap = TokenHeap()
         token_counts = Counter()
         initial_counts = {}
-        # FIXME: I do eventually want this, but it makes debugging harder
-        # First, init our vocab to be all bytes
-        # for i in range(256):
-        #    value = int.to_bytes(i)
 
         # now, we need to know our starting pair counts
         seen = set()
@@ -146,12 +142,6 @@ class BPE:
             # need to manage global counts so that we can compute the new counts
             # insert new counts and mark old counts as stale
             data = heap.pop()
-            # print("Currently the vocab is")
-            # print(list(self.index_lookup.values()))
-            # print(token_counts)
-            # print("now looking at")
-            # print(data.token)
-            # print(data.locs)
             self.trie.insert(data.token, len(self.index_lookup))
             self.index_lookup[len(self.index_lookup)] = data.token
 
