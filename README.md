@@ -10,7 +10,7 @@ What's implemented:
 * Tokenization with Byte Pair Encoding, both learning the vocabulary and tokenizing a text using that vocabulary.
 * Custom CUDA kernels for all GPU operations (modulo a few FIXMEs where I am still relying on CuPy)
 * Rotary positional embeddings (RoPE)
-* Linear self attention
+* Both Softmax and Linear self attention
 * Reverse-mode automatic differentiation
 * Optimization with AdamW
 * Linear, Self Attention, Embedding, and LayerNorm neural network layers
