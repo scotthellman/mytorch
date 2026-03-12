@@ -4,19 +4,6 @@ from mytorch import kernels
 from mytorch.tensor import Tensor
 
 
-def sgd_step(loss: Tensor, step_size: float):
-    gradients = loss.compute_gradient()
-    for t, grad in gradients.items():
-        if t.frozen:
-            continue
-        # FIXME: parameterize this
-        max_val = cp.max(grad)
-        if max_val > 10:
-            grad *= 10 / max_val
-
-        t.value += -grad * step_size
-
-
 class Adam:
     def __init__(
         self,
@@ -63,8 +50,6 @@ class Adam:
             rss = cp.sqrt(squared_sum)
             if rss > self.clip:
                 normalizer = self.clip / rss
-                if cp.any(cp.isnan(normalizer)):
-                    print("clipping normalizer went to nan", self.clip, rss)
             squared_sum = 0
         seen = set()
         for tensors, lr, decay in self.tensors:

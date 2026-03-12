@@ -572,7 +572,7 @@ def softmax(a: cp.ndarray) -> cp.ndarray:
     result_shape = a.shape
     result = cp.empty(result_shape, dtype=cp.float32)
     # we want the grid to cover all of targets
-    n = result.size
+    n = result.size // result_shape[-1]
     block_size = (512,)
     grid_size = (math.ceil(n / block_size[0]),)
     softmax_kernel(
@@ -616,7 +616,7 @@ def softmax_back(path_grads: cp.ndarray, outputs: cp.ndarray) -> cp.ndarray:
     result_shape = path_grads.shape
     result = cp.empty(result_shape, dtype=cp.float32)
     # we want the grid to cover all of targets
-    n = result.size
+    n = result.size // result_shape[-1]
     block_size = (512,)
     grid_size = (math.ceil(n / block_size[0]),)
     softmax_back_kernel(

@@ -342,7 +342,10 @@ class SoftmaxSelfAttention:
         )
 
         result = (
-            q @ k.transpose_last().mult_constant(cp.sqrt(self.key_size))
+            q
+            @ k.transpose_last().mult_constant(
+                1 / cp.sqrt(self.key_size, dtype=cp.float32)
+            )
         ).softmax() @ v
 
         # now we need to reassemble from the multiheads
@@ -370,7 +373,7 @@ class SoftmaxSelfAttention:
 
 class TransformerLayer:
     def __init__(self, embedding_size, n_heads=1, expansion_factor=1):
-        self.attention = LinearSelfAttention(embedding_size, n_heads)
+        self.attention = SoftmaxSelfAttention(embedding_size, n_heads)
         self.attention_norm = LayerNorm((embedding_size,))
         self.linear_expand = Linear(
             embedding_size, embedding_size * expansion_factor, True
