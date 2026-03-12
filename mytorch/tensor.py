@@ -370,6 +370,16 @@ class Tensor:
 
         return Tensor(result, operations)
 
+    def softmax(self) -> Tensor:
+        result = kernels.softmax(self.value)
+
+        def local_grad_self_softmax(acc: cp.ndarray) -> cp.ndarray:
+            return kernels.softmax_back(acc, result)
+
+        operations = [(self, "softmax", local_grad_self_softmax)]
+
+        return Tensor(result, operations)
+
 
 # FIXME: yet another symptom of my messy cpu/gpu divide
 

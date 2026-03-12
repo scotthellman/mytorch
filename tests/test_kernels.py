@@ -75,3 +75,15 @@ def test_cross_entropy():
 
     result, _ = kernels.cross_entropy(a, y)
     assert cp.allclose(expected, result)
+
+
+def test_softmax():
+    a = cp.array([[0, 0], [1, 1], [1, 0]], dtype=cp.float32)
+    expected = cp.array(
+        [[0.5, 0.5], [0.5, 0.5], [math.e / (1 + math.e), 1 / (1 + math.e)]],
+        dtype=cp.float32,
+    )
+
+    result = kernels.softmax(a)
+
+    assert cp.allclose(expected, result)

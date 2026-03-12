@@ -308,6 +308,13 @@ def test_transpose_last_grad(two_d_tensor):
     evaluate_empirical_grad(two_d_tensor, loss_func)
 
 
+def test_softmax_grad(two_d_tensor):
+    def loss_func(x):
+        return x.softmax().mean()
+
+    evaluate_empirical_grad(two_d_tensor, loss_func)
+
+
 def build_compute_grad(self):
     a = Tensor(cp.array([1], dtype=cp.float32))
     b = Tensor(cp.array([1], dtype=cp.float32))

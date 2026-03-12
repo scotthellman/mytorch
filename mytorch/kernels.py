@@ -531,6 +531,103 @@ def cross_entropy(a: cp.ndarray, targets: cp.ndarray) -> cp.ndarray:
     return result, grad_result
 
 
+softmax_code = r"""
+extern "C" __global__
+void softmax_kernel(const float* a, float* out, const int emb, const int batch) {
+    // assume we launched a grid that is large enough to cover all of the batches.
+    // So each thread is responsible for computing the softmax for one row. 
+    // and yes this has terrible coalescing behavior
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    int batch_index = tid * emb;
+
+    // When is a thread out of bounds?
+    // when tid is bigger than batch
+    if(tid < batch){
+        // first we have to know the maximum value
+        float max_val = a[batch_index];
+        for (int i = 1; i < emb; i++){
+            float current_val = a[batch_index + i];
+            max_val = max_val > current_val ? max_val : current_val;
+        }
+
+        // now we can compute the denominator. We can adjust every term by
+        // a constant without altering the softmax result
+        float exp_sum = 0;
+        for (int i = 0; i < emb; i++){
+            exp_sum += exp(a[batch_index + i] - max_val);
+        }
+
+        // now we need to populate the outputs
+        for(int i = 0 ; i < emb; i++){
+            out[batch_index + i] = exp(a[batch_index+i] - max_val) / exp_sum;
+        }
+    }
+}
+"""
+softmax_kernel = cp.RawKernel(softmax_code, "softmax_kernel")
+
+
+def softmax(a: cp.ndarray) -> cp.ndarray:
+    # Assumes that we're computing softmax over the rightmost dim
+    result_shape = a.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    # we want the grid to cover all of targets
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(n / block_size[0]),)
+    softmax_kernel(
+        grid_size,
+        block_size,
+        (a, result, a.shape[-1], n),
+    )
+
+    return result
+
+
+softmax_back_code = r"""
+extern "C" __global__
+void softmax_back_kernel(const float* grads, const float* values, float* out, const int emb, const int batch) {
+    // assume we launched a grid that is large enough to cover all of the batches.
+    // So each thread is responsible for computing the softmax for one row. 
+    // and yes this has terrible coalescing behavior
+    int tid = blockDim.x * blockIdx.x + threadIdx.x;
+    int batch_index = tid * emb;
+
+    // When is a thread out of bounds?
+    // when tid is bigger than batch
+    if(tid < batch){
+        // math here is: out[i,j] = (grad[i,j] - sum(grad[i,k]*values[i,k])) * values[i,j]
+        // but i here is just batch_index. so j and k are what we're actually iterating over
+        float summation_term = 0;
+        for (int k = 0; k < emb; k++){
+            summation_term += grads[batch_index+k] * values[batch_index+k];
+        }
+        for(int j = 0 ; j < emb; j++){
+            out[batch_index + j] = (grads[batch_index+j] - summation_term) * values[batch_index+j];
+        }
+    }
+}
+"""
+softmax_back_kernel = cp.RawKernel(softmax_back_code, "softmax_back_kernel")
+
+
+def softmax_back(path_grads: cp.ndarray, outputs: cp.ndarray) -> cp.ndarray:
+    # Assumes that we're computing softmax over the rightmost dim
+    result_shape = path_grads.shape
+    result = cp.empty(result_shape, dtype=cp.float32)
+    # we want the grid to cover all of targets
+    n = result.size
+    block_size = (512,)
+    grid_size = (math.ceil(n / block_size[0]),)
+    softmax_back_kernel(
+        grid_size,
+        block_size,
+        (path_grads, outputs, result, result_shape[-1], n),
+    )
+
+    return result
+
+
 # having each thread deal with one whole layer seems like a good balance of easy and fast
 layernorm_code = r"""
 extern "C" __global__

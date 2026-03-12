@@ -107,7 +107,7 @@ class AdditivePositionalEncoding:
         return input
 
 
-class SelfAttention:
+class LinearSelfAttention:
     def __init__(self, embedding_size, n_heads=1):
         assert embedding_size % n_heads == 0
         weight_data = cp.random.normal(
@@ -292,9 +292,85 @@ class SelfAttention:
         return Tensor(num, ops)
 
 
+class SoftmaxSelfAttention:
+    def __init__(self, embedding_size, n_heads=1):
+        assert embedding_size % n_heads == 0
+        weight_data = cp.random.normal(
+            0, 0.1, (embedding_size, embedding_size * 3), dtype=cp.float32
+        )
+        self.weights = Tensor(weight_data, frozen=False)
+        self.out_weights = Tensor(
+            cp.random.normal(
+                0, 0.1, (embedding_size, embedding_size), dtype=cp.float32
+            ),
+            frozen=False,
+        )
+        self.embedding_size = embedding_size
+        self.n_heads = n_heads
+        self.key_size = embedding_size // n_heads
+        self.params = [self.weights, self.out_weights]
+
+    def forward(self, input: Tensor):
+        # let's be clear about shapes, as we go
+        # input: (b, s, emb)
+        # get our q,k,v values
+        # q,k,v are all (b,s,key)
+        qwk = input @ self.weights
+        # now we need to calculate our similarities. Have to stop going off of AIAYN now,
+        # switch to the linear attention paper
+        # if we were doing AIAYN, we would get: result = softmax((Q@K.T) / sqrt(self.key_size)) @ V
+
+        # now we want to split into our heads
+        # and then shuffle n_heads to be one of the batch dims
+        q = qwk.index_reshape_transpose(
+            (Ellipsis, slice(None, self.embedding_size)),
+            (input.value.shape[0], -1, self.n_heads, self.key_size),
+            1,
+            2,
+        )
+        k = qwk.index_reshape_transpose(
+            (Ellipsis, slice(self.embedding_size, self.embedding_size * 2)),
+            (input.value.shape[0], -1, self.n_heads, self.key_size),
+            1,
+            2,
+        )
+        v = qwk.index_reshape_transpose(
+            (Ellipsis, slice(self.embedding_size * 2, None)),
+            (input.value.shape[0], -1, self.n_heads, self.key_size),
+            1,
+            2,
+        )
+
+        result = (
+            q @ k.transpose_last().mult_constant(cp.sqrt(self.key_size))
+        ).softmax() @ v
+
+        # now we need to reassemble from the multiheads
+        result = result.transpose(1, 2)
+        result = result.reshape(
+            (input.value.shape[0], input.value.shape[1], self.key_size * self.n_heads)
+        )
+
+        return result @ self.out_weights
+
+    def rotate(self, tensor: Tensor):
+        # FIXME: this shouldn't be part of the self attention class
+        # NOTE: this assumes an even number of dimensions
+        # we're specifically rotating the final dim based on the penultimate index
+        # everything above that is just batched
+        result = kernels.rope(tensor.value)
+
+        def local_grad(acc: cp.ndarray) -> cp.ndarray:
+            return kernels.rope(acc, backward=True)
+
+        ops = [(tensor, "rope", local_grad)]
+
+        return Tensor(result, ops)
+
+
 class TransformerLayer:
     def __init__(self, embedding_size, n_heads=1, expansion_factor=1):
-        self.attention = SelfAttention(embedding_size, n_heads)
+        self.attention = LinearSelfAttention(embedding_size, n_heads)
         self.attention_norm = LayerNorm((embedding_size,))
         self.linear_expand = Linear(
             embedding_size, embedding_size * expansion_factor, True

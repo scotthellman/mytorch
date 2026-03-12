@@ -53,8 +53,20 @@ def test_layer_norm():
     assert cp.allclose(expected, result.value)
 
 
+def test_linear_self_attention_grad():
+    layer = layers.LinearSelfAttention(4, 2)
+    tensor = Tensor(cp.array([0.2, 0.4, 0.1, 0.0], dtype=cp.float32).reshape((1, 1, 4)))
+    layer.forward(tensor)
+
+    def loss_func(x):
+        result = layer.forward(tensor).sum()
+        return result
+
+    evaluate_empirical_grad(layer.weights, loss_func)
+
+
 def test_self_attention_grad():
-    layer = layers.SelfAttention(4, 2)
+    layer = layers.SoftmaxSelfAttention(4, 2)
     tensor = Tensor(cp.array([0.2, 0.4, 0.1, 0.0], dtype=cp.float32).reshape((1, 1, 4)))
     layer.forward(tensor)
 
