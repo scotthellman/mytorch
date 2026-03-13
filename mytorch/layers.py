@@ -342,10 +342,10 @@ class SoftmaxSelfAttention:
         )
 
         result = (
-            q
-            @ k.transpose_last().mult_constant(
-                1 / cp.sqrt(self.key_size, dtype=cp.float32)
-            )
+            self.rotate(q)
+            @ self.rotate(k)
+            .transpose_last()
+            .mult_constant(1 / cp.sqrt(self.key_size, dtype=cp.float32))
         ).softmax() @ v
 
         # now we need to reassemble from the multiheads
