@@ -1,3 +1,9 @@
+"""Efficient tokenization and vocab construction for byte-pair encoding.
+
+(Well, in the BPE class. NaiveBPE, as the name suggests, is a very
+naive implementation.)
+"""
+
 from collections import Counter
 
 from mytorch.tokenizers.linkedarray import LinkedArray

@@ -1,3 +1,5 @@
+"""Neural Network layers that can work with Tensors"""
+
 import cupy as cp
 import cupyx
 

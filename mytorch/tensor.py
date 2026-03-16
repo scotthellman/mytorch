@@ -1,3 +1,14 @@
+"""Code for working with arrays while building a compute graph.
+
+Broadly equivalent to PyTorch's Tensor class, just much smaller in scope.
+
+There are two big pieces here: `Tensor.compute_gradient` which runs
+reverse-mode automatic differentiation, and then a variety of mathematical
+operations on `Tensor`s that build an implicit compute graph by populating
+`self.operations` with tuples of:
+(parent, operation name, backward gradient function)
+"""
+
 from __future__ import annotations
 
 import cupy as cp
@@ -24,6 +35,13 @@ class Tensor:
         self.grad = cp.zeros_like(self.value)
 
     def compute_gradient(self):
+        """Populate self.grad on this tensor and all child tensors.
+
+        Runs reverse-mode automatic differentiation. Every tensor tracks
+        the operations that were used to create it (in `self.operations`),
+        and this function reifies that implicit compute graph and then visits
+        it in topological order.
+        """
         visit_order = self.toposort()
         path_gradients = {self: cp.ones(self.value.shape, dtype=cp.float32)}
         for current_variable in visit_order:
@@ -41,6 +59,11 @@ class Tensor:
             del path_gradients[current_variable]
 
     def build_compute_graph(self) -> dict["Tensor", set["Tensor"]]:
+        """Constructs the compute graph defined by `self.operations`.
+
+        We only need to know the children of every node in the graph,
+        so that's the only thing we actually construct here.
+        """
         children: dict[Tensor, set[Tensor]] = {}
         stack: list[Tensor] = [self]
         while stack:
@@ -55,7 +78,8 @@ class Tensor:
                 stack.append(child)
         return children
 
-    def toposort(self):
+    def toposort(self) -> list["Tensor"]:
+        """Get a topological ordering of the nodes in the compute graph."""
         children = self.build_compute_graph()
 
         ordering = self._toposort(children, set())
@@ -89,10 +113,12 @@ class Tensor:
         b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
         def local_grad_self_add(acc: cp.ndarray) -> cp.ndarray:
-            return handle_broadcasting(acc, self_broadcast_axes, self.value.shape)
+            return handle_broadcasting_backwards(
+                acc, self_broadcast_axes, self.value.shape
+            )
 
         def local_grad_b_add(acc: cp.ndarray) -> cp.ndarray:
-            return handle_broadcasting(acc, b_broadcast_axes, b.value.shape)
+            return handle_broadcasting_backwards(acc, b_broadcast_axes, b.value.shape)
 
         operations = [
             (self, "add", local_grad_self_add),  # conceptually, 1*acc
@@ -106,10 +132,12 @@ class Tensor:
         b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
         def local_grad_self_sub(acc: cp.ndarray) -> cp.ndarray:
-            return handle_broadcasting(acc, self_broadcast_axes, self.value.shape)
+            return handle_broadcasting_backwards(
+                acc, self_broadcast_axes, self.value.shape
+            )
 
         def local_grad_b_sub(acc: cp.ndarray) -> cp.ndarray:
-            return handle_broadcasting(
+            return handle_broadcasting_backwards(
                 kernels.neg(acc), b_broadcast_axes, b.value.shape
             )
 
@@ -123,12 +151,12 @@ class Tensor:
         b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
         def local_grad_self_mul(acc: cp.ndarray) -> cp.ndarray:
-            return handle_broadcasting(
+            return handle_broadcasting_backwards(
                 kernels.mul(acc, b.value), self_broadcast_axes, self.value.shape
             )
 
         def local_grad_b_mul(acc: cp.ndarray) -> cp.ndarray:
-            return handle_broadcasting(
+            return handle_broadcasting_backwards(
                 kernels.mul(acc, self.value), b_broadcast_axes, b.value.shape
             )
 
@@ -154,12 +182,12 @@ class Tensor:
         b_broadcast_axes = compute_broadcast_axes(b.value.shape, result.shape)
 
         def local_grad_self_div(acc: cp.ndarray) -> cp.ndarray:
-            return handle_broadcasting(
+            return handle_broadcasting_backwards(
                 kernels.div(acc, b.value), self_broadcast_axes, self.value.shape
             )
 
         def local_grad_b_div(acc: cp.ndarray) -> cp.ndarray:
-            return handle_broadcasting(
+            return handle_broadcasting_backwards(
                 kernels.div_local_grad(acc, self.value, b.value),
                 b_broadcast_axes,
                 b.value.shape,
@@ -184,11 +212,13 @@ class Tensor:
             # TODO: arguably I should implement this myself
             # FIXME: especially now that i have to copy to make hte view concrete
             grad = kernels.matmul(acc, cp.swapaxes(b.value, -2, -1).copy())
-            return handle_broadcasting(grad, self_broadcast_axes, self.value.shape)
+            return handle_broadcasting_backwards(
+                grad, self_broadcast_axes, self.value.shape
+            )
 
         def local_grad_b_matmul(acc: cp.ndarray) -> cp.ndarray:
             grad = kernels.matmul(cp.swapaxes(self.value, -2, -1).copy(), acc)
-            return handle_broadcasting(grad, b_broadcast_axes, b.value.shape)
+            return handle_broadcasting_backwards(grad, b_broadcast_axes, b.value.shape)
 
         operations = [
             (self, "matmul", local_grad_self_matmul),
@@ -207,17 +237,17 @@ class Tensor:
         )
 
         def local_grad_self(acc: cp.ndarray) -> cp.ndarray:
-            return handle_broadcasting(
+            return handle_broadcasting_backwards(
                 kernels.mul(acc, mul_term.value), self_broadcast_axes, self.value.shape
             )
 
         def local_grad_add(acc: cp.ndarray) -> cp.ndarray:
-            return handle_broadcasting(
+            return handle_broadcasting_backwards(
                 acc, add_term_broadcast_axes, add_term.value.shape
             )
 
         def local_grad_mul(acc: cp.ndarray) -> cp.ndarray:
-            return handle_broadcasting(
+            return handle_broadcasting_backwards(
                 kernels.mul(acc, self.value),
                 mul_term_broadcast_axes,
                 mul_term.value.shape,
@@ -381,12 +411,10 @@ class Tensor:
         return Tensor(result, operations)
 
 
-# FIXME: yet another symptom of my messy cpu/gpu divide
-
-
 def compute_broadcast_axes(
     start_shape: tuple[int], broadcast_shape: tuple[int], matmul: bool = False
 ) -> tuple[int]:
+    """Determines what axes need to be adjusted as part of broadcasting."""
     altered_axes = []
     start = -3 if matmul else -1
     for i in range(start, -len(broadcast_shape) - 1, -1):
@@ -397,11 +425,15 @@ def compute_broadcast_axes(
     return tuple(altered_axes)
 
 
-def handle_broadcasting(
+def handle_broadcasting_backwards(
     path_gradient: cp.ndarray,
     broadcast_axes: tuple[int],
     target_shape: tuple[int],
 ) -> cp.ndarray:
+    """If we broadcast going forward, we need to sum over those axes going backwards.
+
+    This function does that.
+    """
     if broadcast_axes:
         return cp.sum(path_gradient, axis=broadcast_axes).reshape(target_shape)
     return path_gradient

@@ -1,3 +1,16 @@
+"""CUDA kernels for matrix math.
+
+A major goal of this project was to learn more about the GPU side
+of neural net training, so most operations on matrices go through
+kernels defined in this file. For the most part, I wasn't too worried
+about efficiency. The one caveat there is matrix multiplication, due
+to its importance in neural net training. While my kernel is nowhere
+near as fast as, say, what cuBLAS can do, it is still quite performant
+and is not just a naive implementation of matrix multiplication ported
+into a kernel. See the comments in `matmul_code` for details.
+
+"""
+
 import math
 
 import cupy as cp

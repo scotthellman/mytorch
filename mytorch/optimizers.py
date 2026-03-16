@@ -1,3 +1,5 @@
+"""Optimizers that use gradient information to update model weights."""
+
 import cupy as cp
 
 from mytorch import kernels

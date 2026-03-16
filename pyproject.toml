@@ -5,10 +5,17 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "click>=8.3.1",
     "cupy-cuda13x",
+    "networkx>=3.6.1",
     "numpy>=2.4.2",
+    "pydot>=4.0.1",
     "pytest>=9.0.2",
     "scikit-learn>=1.8.0",
+    "tqdm>=4.67.3",
+    "torch>=2.9.1",
+    "torchvision>=0.24.1",
+    "mwxml>=0.3.6",
 ]
 
 
