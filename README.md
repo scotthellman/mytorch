@@ -16,7 +16,7 @@ What's implemented:
 * Linear, Self Attention, Embedding, and LayerNorm neural network layers
 * ELU and Sigmoid activation functions
 
-Equivalent MyTorch and PyTorch networks behave the same (their weights differ by ~1e-7 over 125 training steps, computed by `experiments/compare_real_training.py`). That said, there's unsurprisingly no reason to ever use MyTorch in practice - I haven't done any formal benchmarking, but PyTorch is at least 4x as fast. I don't know the full cause of that, but I suspect a lot of it comes from ineffecient kernels and excessive memory copying.
+Equivalent MyTorch and PyTorch networks behave the same (their weights differ by ~1e-5 over ~50 training steps, computed by `experiments/compare_real_training.py`). That said, there's unsurprisingly no reason to ever use MyTorch in practice - I haven't done any formal benchmarking, but PyTorch is at least 4x as fast. I don't know the full cause of that, but I suspect a lot of it comes from ineffecient kernels and excessive memory copying.
 
 Resources
 -------
