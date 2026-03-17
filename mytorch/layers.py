@@ -317,6 +317,16 @@ class SoftmaxSelfAttention:
         # input: (b, s, emb)
         # get our q,k,v values
         # q,k,v are all (b,s,key)
+        causal_mask = Tensor(
+            cp.triu(
+                cp.full(
+                    (input.value.shape[-2], input.value.shape[-2]),
+                    -cp.inf,
+                    dtype=cp.float32,
+                ),
+                1,
+            )
+        )
         qwk = input @ self.weights
         # now we need to calculate our similarities. Have to stop going off of AIAYN now,
         # switch to the linear attention paper
@@ -343,12 +353,10 @@ class SoftmaxSelfAttention:
             2,
         )
 
-        result = (
-            self.rotate(q)
-            @ self.rotate(k)
-            .transpose_last()
-            .mult_constant(1 / cp.sqrt(self.key_size, dtype=cp.float32))
-        ).softmax() @ v
+        qk = self.rotate(q) @ self.rotate(k).transpose_last().mult_constant(
+            1 / cp.sqrt(self.key_size, dtype=cp.float32)
+        )
+        result = (qk + causal_mask).softmax() @ v
 
         # now we need to reassemble from the multiheads
         result = result.transpose(1, 2)
