@@ -15,6 +15,20 @@ import cupy as cp
 
 from mytorch import kernels
 
+GRAD_ENABLED = True
+
+
+class DisableGradManager:
+    def __init__(self): ...
+
+    def __enter__(self):
+        global GRAD_ENABLED
+        GRAD_ENABLED = False
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        global GRAD_ENABLED
+        GRAD_ENABLED = True
+
 
 class Tensor:
     def __init__(
@@ -29,7 +43,8 @@ class Tensor:
             self.operations = []
         else:
             self.operations = operations
-        self.reset()
+        if GRAD_ENABLED:
+            self.reset()
 
     def reset(self):
         self.grad = cp.zeros_like(self.value)

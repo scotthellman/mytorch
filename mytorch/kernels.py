@@ -764,7 +764,7 @@ def layernorm_back(
 
 rope_code = r"""
 extern "C" __global__
-void rope_kernel(const float* a, float* out, int emb_size, int seq_size, int batch_size, bool backward) {
+void rope_kernel(const float* a, float* out, int emb_size, int seq_size, int batch_size, bool backward, int offset) {
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
     const int z = blockIdx.z * blockDim.z + threadIdx.z;
@@ -782,8 +782,8 @@ void rope_kernel(const float* a, float* out, int emb_size, int seq_size, int bat
         int true_index = z*seq_size*emb_size + y*emb_size + x;
         int sin_index = true_index + (1 - 2*(true_index%2));
 
-        float cos_val = a[true_index] * cos((y+1.0) * theta);
-        float sin_val = a[sin_index] * sin((y+1.0) * theta);
+        float cos_val = a[true_index] * cos((y+1.0+offset) * theta);
+        float sin_val = a[sin_index] * sin((y+1.0+offset) * theta);
         float sign = (-2 * (sin_index%2)) + 1;
         out[true_index] = cos_val + sign * sin_val;
     }
@@ -792,7 +792,7 @@ void rope_kernel(const float* a, float* out, int emb_size, int seq_size, int bat
 rope_kernel = cp.RawKernel(rope_code, "rope_kernel")
 
 
-def rope(a: cp.ndarray, backward: bool = False) -> cp.ndarray:
+def rope(a: cp.ndarray, offset: int = 0, backward: bool = False) -> cp.ndarray:
     emb_size = a.shape[-1]
     seq_size = a.shape[-2]
     batch_size = 1
@@ -817,7 +817,7 @@ def rope(a: cp.ndarray, backward: bool = False) -> cp.ndarray:
     rope_kernel(
         grid_size,
         block_size,
-        (a, result, emb_size, seq_size, batch_size, backward),
+        (a, result, emb_size, seq_size, batch_size, backward, offset),
     )
 
     return result

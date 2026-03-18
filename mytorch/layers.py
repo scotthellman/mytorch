@@ -295,7 +295,7 @@ class LinearSelfAttention:
 
 
 class SoftmaxSelfAttention:
-    def __init__(self, embedding_size, n_heads=1):
+    def __init__(self, embedding_size: int, n_heads: int = 1, max_len: int = 512):
         assert embedding_size % n_heads == 0
         weight_data = cp.random.normal(
             0, 0.1, (embedding_size, embedding_size * 3), dtype=cp.float32
@@ -311,22 +311,27 @@ class SoftmaxSelfAttention:
         self.n_heads = n_heads
         self.key_size = embedding_size // n_heads
         self.params = [self.weights, self.out_weights]
-
-    def forward(self, input: Tensor):
-        # let's be clear about shapes, as we go
-        # input: (b, s, emb)
-        # get our q,k,v values
-        # q,k,v are all (b,s,key)
-        causal_mask = Tensor(
+        self.max_len = max_len
+        self.k_cache = None
+        self.v_cache = None
+        self.cache_len = 0
+        self.causal_mask = Tensor(
             cp.triu(
                 cp.full(
-                    (input.value.shape[-2], input.value.shape[-2]),
+                    (max_len, max_len),
                     -cp.inf,
                     dtype=cp.float32,
                 ),
                 1,
             )
         )
+
+    def forward(self, input: Tensor, use_cache: bool = False):
+        # let's be clear about shapes, as we go
+        # input: (b, s, emb)
+        # get our q,k,v values
+        # q,k,v are all (b,s,key)
+        # because we build this dynamically, we should be ok re: caching
         qwk = input @ self.weights
         # now we need to calculate our similarities. Have to stop going off of AIAYN now,
         # switch to the linear attention paper
@@ -353,9 +358,34 @@ class SoftmaxSelfAttention:
             2,
         )
 
-        qk = self.rotate(q) @ self.rotate(k).transpose_last().mult_constant(
+        q = self.rotate(q, self.cache_len)
+        k = self.rotate(k, self.cache_len)
+        seq_length = input.value.shape[-2]
+
+        if use_cache:
+            # this all completely breaks backprop, but it's an inference-time
+            # only thing so that should be fine.
+            if self.k_cache is None:
+                cache_shape = (
+                    k.value.shape[0],
+                    k.value.shape[1],
+                    self.max_len,
+                    k.value.shape[-1],
+                )
+                self.k_cache = cp.zeros(cache_shape, dtype=cp.float32)
+                self.v_cache = cp.zeros(cache_shape, dtype=cp.float32)
+            self.k_cache[..., self.cache_len : self.cache_len + seq_length, :] = k.value
+            self.v_cache[..., self.cache_len : self.cache_len + seq_length, :] = v.value
+            self.cache_len += input.value.shape[-2]
+            # and now the tragedy of my kernels not being stride-aware strikes again
+            # we have to copy this to reify the view
+            k = Tensor(self.k_cache[..., : self.cache_len, :].copy())
+            v = Tensor(self.v_cache[..., : self.cache_len, :].copy())
+
+        qk = q @ k.transpose_last().mult_constant(
             1 / cp.sqrt(self.key_size, dtype=cp.float32)
         )
+        causal_mask = self.causal_mask[:seq_length, :seq_length]
         result = (qk + causal_mask).softmax() @ v
 
         # now we need to reassemble from the multiheads
@@ -366,12 +396,12 @@ class SoftmaxSelfAttention:
 
         return result @ self.out_weights
 
-    def rotate(self, tensor: Tensor):
+    def rotate(self, tensor: Tensor, offset: int = 0):
         # FIXME: this shouldn't be part of the self attention class
         # NOTE: this assumes an even number of dimensions
         # we're specifically rotating the final dim based on the penultimate index
         # everything above that is just batched
-        result = kernels.rope(tensor.value)
+        result = kernels.rope(tensor.value, offset=offset)
 
         def local_grad(acc: cp.ndarray) -> cp.ndarray:
             return kernels.rope(acc, backward=True)
@@ -379,6 +409,11 @@ class SoftmaxSelfAttention:
         ops = [(tensor, "rope", local_grad)]
 
         return Tensor(result, ops)
+
+    def reset_cache(self):
+        self.k_cache = None
+        self.v_cache = None
+        self.cache_len = 0
 
 
 class TransformerLayer:
@@ -401,13 +436,16 @@ class TransformerLayer:
         self.params.extend(self.linear_contract.params)
         self.params.extend(self.linear_norm.params)
 
-    def forward(self, tensor: Tensor) -> Tensor:
-        attended = self.attention.forward(tensor)
+    def forward(self, tensor: Tensor, use_cache: bool = False) -> Tensor:
+        attended = self.attention.forward(tensor, use_cache)
         interim = self.attention_norm.forward(attended + tensor)
         processed = self.linear_contract.forward(
             self.linear_activation.forward(self.linear_expand.forward(interim))
         )
         return self.linear_norm.forward(processed + interim)
+
+    def reset_cache(self):
+        self.attention.reset_cache()
 
 
 # TODO: not really a layer. Need to fix my organization
