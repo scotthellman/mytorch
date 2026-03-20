@@ -23,7 +23,13 @@ Example invocations:
 ```shell
 uv run scripts/tokenize_wiki.py --data-dir ~/Downloads/wiki/ --vocab-size 2048 --tokenizer-out test_tokenizer.pkl --tokenized-out test_tokenized.pkl --max-docs 5000
 
+uv run scripts/train_model.py --tokenizer test_tokenizer.pkl --tokenized test_tokenized.pkl --output test_network.pkl --batch-size 16
+
+uv run scripts/run_inference.py "It was the year when they finally immanentized the Eschaton" --tokenizer test_tokenizer.pkl --network test_network.pkl --temperature 0.3
+
 ```
+
+I've only run this code on my machine, but as far as I know, it should work anywhere that can properly run the correct CuPY version.
 
 Resources
 -------
