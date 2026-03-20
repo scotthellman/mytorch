@@ -22,7 +22,7 @@ class Decoder:
         else:
             g = cp.random.gumbel(size=relevant.shape)
 
-        return int(cp.argmax((relevant + g) / temperature))
+        return int(cp.argmax(relevant / temperature + g))
 
     def sample_text(
         self,
