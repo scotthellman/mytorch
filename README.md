@@ -10,13 +10,20 @@ What's implemented:
 * Tokenization with Byte Pair Encoding, both learning the vocabulary and tokenizing a text using that vocabulary.
 * Custom CUDA kernels for all GPU operations (modulo a few FIXMEs where I am still relying on CuPy)
 * Rotary positional embeddings (RoPE)
-* Both Softmax and Linear self attention
+* Both Softmax and Linear self attention (though Linear doesn't currently support kv caching)
 * Reverse-mode automatic differentiation
 * Optimization with AdamW
 * Linear, Self Attention, Embedding, and LayerNorm neural network layers
 * ELU and Sigmoid activation functions
 
 Equivalent MyTorch and PyTorch networks behave the same (their weights differ by ~1e-5 over ~50 training steps, computed by `experiments/compare_real_training.py`). That said, there's unsurprisingly no reason to ever use MyTorch in practice - I haven't done any formal benchmarking, but PyTorch is at least 4x as fast. I don't know the full cause of that, but I suspect a lot of it comes from ineffecient kernels and excessive memory copying.
+
+Example invocations:
+
+```shell
+uv run scripts/tokenize_wiki.py --data-dir ~/Downloads/wiki/ --vocab-size 2048 --tokenizer-out test_tokenizer.pkl --tokenized-out test_tokenized.pkl --max-docs 5000
+
+```
 
 Resources
 -------
