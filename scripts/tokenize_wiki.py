@@ -16,8 +16,9 @@ from mytorch.tokenizers.tokenizers import BPE
 @click.option("--vocab-size", required=True, type=int)
 @click.option("--tokenizer-out", required=True, type=click.Path(path_type=Path))
 @click.option("--tokenized-out", required=True, type=click.Path(path_type=Path))
+@click.option("--max-docs", default=10000, type=int, show_default=True)
 def build_tokens(
-    data_dir: Path, vocab_size: int, tokenizer_out: Path, tokenized_out: Path
+    data_dir: Path, vocab_size: int, tokenizer_out: Path, tokenized_out: Path, max_docs: int
 ):
     tqdm.set_lock(tqdm.get_lock())
 
@@ -47,7 +48,7 @@ def build_tokens(
                     text = text.replace("]]", "")
 
                     texts.append(text)
-                if len(texts) > 10000:
+                if len(texts) > max_docs:
                     break
 
     final_text = "\n".join(texts)
